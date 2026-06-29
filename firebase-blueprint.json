@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Configuration settings for the baby tracker household",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Unique household ID"
+        },
+        "parentAName": {
+          "type": "string",
+          "description": "Name of Parent A"
+        },
+        "parentBName": {
+          "type": "string",
+          "description": "Name of Parent B"
+        },
+        "defaultBottleType": {
+          "type": "string",
+          "enum": ["EXPRESSED_MILK", "FORMULA"],
+          "description": "Default bottle liquid type"
+        },
+        "customActivities": {
+          "type": "array",
+          "description": "List of user custom activities"
+        }
+      },
+      "required": ["userId", "parentAName", "parentBName", "defaultBottleType", "customActivities"]
+    },
+    "BabyEvent": {
+      "title": "BabyEvent",
+      "description": "A single baby tracking event",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the event"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO string of the event datetime"
+        },
+        "eventType": {
+          "type": "string",
+          "enum": ["NUTRITION", "DIAPER", "SLEEP", "ACTIVITY", "WEIGHT"],
+          "description": "Type of event"
+        },
+        "loggedBy": {
+          "type": "string",
+          "enum": ["PARENT_A", "PARENT_B"],
+          "description": "Parent who logged this event"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes for the event"
+        }
+      },
+      "required": ["id", "timestamp", "eventType", "loggedBy"]
+    }
+  },
+  "firestore": {
+    "/households/{householdId}": {
+      "schema": "UserSettings",
+      "description": "Settings for a shared household"
+    },
+    "/households/{householdId}/events/{eventId}": {
+      "schema": "BabyEvent",
+      "description": "Events logged for a household"
+    }
+  }
+}

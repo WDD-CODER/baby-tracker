@@ -1,0 +1,6 @@
+{
+  "name": "מעקב תינוק — Baby Tracker",
+  "description": "אפליקציה מהירה וידידותית למעקב אחר האכלות (הנקה ובקבוקים), שינה, חיתולים, פעילויות ומשקל התינוק - מותאמת לשימוש ביד אחת בעברית.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

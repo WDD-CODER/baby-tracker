@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body {
+    background-color: #020617; /* bg-slate-950 */
+    color: #f1f5f9; /* text-slate-100 */
+    color-scheme: dark; /* Forces browser native UI like pickers/datetime to be dark */
+  }
+
+  /* Elegant scrollbars for dark mode */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #020617;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
