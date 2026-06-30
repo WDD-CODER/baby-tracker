@@ -16,6 +16,10 @@
 
 ## Tech stack
 - The authoritative tech stack reference is `_shared/tech-stack.md`. Do not invent stack details not documented there.
+- Current product state (implemented vs backlog): `_shared/current-state.md`
+
+## Project baseline
+- The codebase is a **working app imported from Google AI Studio**. Validate changes against the existing baseline — extend it, never regenerate from scratch and never migrate the stack (no Angular, no MongoDB) without an explicit Architect plan that says so.
 
 ## Output
 - Write review findings to `sessions/[YYYY-MM-DD].md` (append) or reference specific files in `bugs/` for actionable issues.

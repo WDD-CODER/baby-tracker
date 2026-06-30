@@ -20,3 +20,9 @@
 - AgentMemory is **not wired yet**. Do not use `recall`, MCP memory tools, or AgentMemory references.
 - At the end of each execution session, write a summary to `sessions/[YYYY-MM-DD].md` (append if the file already exists for that date).
 - Summaries should include: milestone worked on, changes made, verification results, blockers, and next steps.
+- After Stage 0.5 (AgentMemory wired), upgrade handoffs to use `handoff`/`recall` instead of file-only summaries.
+
+## Project baseline
+- The codebase is a **working app imported from Google AI Studio**. Extend it — never regenerate from scratch and never migrate the stack (no Angular, no MongoDB) without an explicit Architect plan that says so.
+- Authoritative stack: `_shared/tech-stack.md`
+- Current product state: `_shared/current-state.md`
