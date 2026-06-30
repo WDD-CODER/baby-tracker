@@ -8,7 +8,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import ExcelJS from 'exceljs';
 import { getSettings, saveSettings, getAllEvents, getOpenSleepSession, saveEvent, deleteEvent, clearAllEvents } from './server/db';
-import { BabyEvent, EventType, UserSettings, SleepLocationType } from './src/types';
+import { BabyEvent, EventType, UserSettings, SleepLocationType, ParentType } from './src/types';
 
 const app = express();
 const PORT = 3000;
@@ -18,6 +18,14 @@ app.use(express.json());
 // Helper to generate unique IDs
 function generateId(): string {
   return 'event_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+// Validates the active parent; defaults to PARENT_A silently (never throws for this field)
+function parseActiveParent(body: { activeParent?: string }): ParentType {
+  if (body.activeParent === 'PARENT_A' || body.activeParent === 'PARENT_B') {
+    return body.activeParent;
+  }
+  return 'PARENT_A';
 }
 
 // Helper to format Date to local Israel date (YYYY-MM-DD)
@@ -97,7 +105,8 @@ app.post('/api/sleep/toggle', async (req, res) => {
   try {
     const now = new Date().toISOString();
     const loggedBy = req.body.loggedBy || 'PARENT_A';
-    const startLocation = req.body.startLocation || 'CRIB';
+    const activeParent = parseActiveParent(req.body);
+    const startLocation: SleepLocationType = req.body.startLocation || req.body.location || 'CRIB';
     const customStartAt = req.body.customStartAt;
     const quickRecorded = req.body.quickRecorded || false;
 
@@ -113,6 +122,7 @@ app.post('/api/sleep/toggle', async (req, res) => {
 
         openSession.sleep.endAt = now;
         openSession.sleep.durationMinutes = durationMinutes;
+        openSession.sleep.loggedByEnd = activeParent;
         if (quickRecorded) {
           openSession.quickRecorded = true;
         }
@@ -134,7 +144,8 @@ app.post('/api/sleep/toggle', async (req, res) => {
         sleep: {
           startAt: startAt,
           endAt: null,
-          startLocation
+          startLocation,
+          loggedByStart: activeParent
         }
       };
       

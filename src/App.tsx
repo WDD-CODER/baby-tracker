@@ -208,6 +208,14 @@ export default function App() {
   const [parentANameInput, setParentANameInput] = useState('אמא');
   const [parentBNameInput, setParentBNameInput] = useState('אבא');
   const [defaultBottleTypeInput, setDefaultBottleTypeInput] = useState<'EXPRESSED_MILK' | 'FORMULA'>('EXPRESSED_MILK');
+  const [babyNameInput, setBabyNameInput] = useState('');
+  const [babyDobInput, setBabyDobInput] = useState('');
+  const [babyBirthWeightInput, setBabyBirthWeightInput] = useState(0);
+
+  // Breast feed top-up edit state
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpLiquidType, setTopUpLiquidType] = useState<'EXPRESSED_MILK' | 'FORMULA'>('EXPRESSED_MILK');
+  const [topUpConsumedMl, setTopUpConsumedMl] = useState(30);
 
   // Dashboard collapse states and clear data confirmation state
   const [expandedDashboards, setExpandedDashboards] = useState<{ [key: string]: boolean }>({
@@ -1016,6 +1024,9 @@ export default function App() {
         setParentANameInput(data.parentAName);
         setParentBNameInput(data.parentBName);
         setDefaultBottleTypeInput(data.defaultBottleType);
+        setBabyNameInput(data.babyProfile?.name ?? '');
+        setBabyDobInput(data.babyProfile?.dateOfBirth ?? '');
+        setBabyBirthWeightInput(data.babyProfile?.birthWeightGrams ?? 0);
         setBottleLiquidType(data.defaultBottleType);
       }
     } catch (e) {
@@ -1118,6 +1129,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           loggedBy: activeParent,
+          activeParent,
           startLocation: location,
           customStartAt: customTimestamp ? new Date(customTimestamp).toISOString() : undefined
         })
@@ -1157,6 +1169,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           loggedBy: activeParent,
+          activeParent,
           startLocation: 'CRIB',
           quickRecorded: true
         })
@@ -1308,7 +1321,12 @@ export default function App() {
         breastSide: bottleFeedType === 'BREAST' ? breastSide : undefined,
         durationMinutes: bottleFeedType === 'BREAST' ? breastDuration : undefined,
         spitUp,
-        swallowingNoises: swallowingNoises
+        swallowingNoises: swallowingNoises,
+        topUp: bottleFeedType === 'BREAST'
+          ? (showTopUp && topUpConsumedMl > 0
+            ? { liquidType: topUpLiquidType, consumedMl: topUpConsumedMl }
+            : null)
+          : editingEvent.nutrition.topUp
       };
     } else if (editingEvent.eventType === 'DIAPER' && editingEvent.diaper) {
       payload.diaper = {
@@ -1411,6 +1429,33 @@ export default function App() {
     }
   };
 
+  const handleSaveBabyProfile = async () => {
+    if (!babyNameInput.trim()) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          babyProfile: {
+            name: babyNameInput.trim(),
+            dateOfBirth: babyDobInput,
+            birthWeightGrams: babyBirthWeightInput
+          }
+        })
+      });
+
+      if (res.ok) {
+        showToast('פרטי התינוק נשמרו בהצלחה');
+        fetchSettings();
+      }
+    } catch (err) {
+      showToast('שגיאה בשמירת פרטי התינוק');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleAddCustomActivity = async () => {
     if (!newActivityNameInput.trim()) return;
     const updatedActivities = [...settings.customActivities, newActivityNameInput.trim()];
@@ -1481,6 +1526,11 @@ export default function App() {
     setSpitUp('NONE');
     setSwallowingNoises(false);
 
+    // Top-up defaults
+    setShowTopUp(false);
+    setTopUpLiquidType(settings.defaultBottleType);
+    setTopUpConsumedMl(30);
+
     // Diaper defaults
     setDiaperContains('PEE');
     setPeeVolume('LIGHT');
@@ -1527,6 +1577,11 @@ export default function App() {
       } else {
         setBreastSide(event.nutrition.breastSide || 'BOTH');
         setBreastDuration(event.nutrition.durationMinutes || 15);
+        if (event.nutrition.topUp) {
+          setShowTopUp(true);
+          setTopUpLiquidType(event.nutrition.topUp.liquidType);
+          setTopUpConsumedMl(event.nutrition.topUp.consumedMl);
+        }
       }
       setSpitUp(event.nutrition.spitUp || 'NONE');
       setSwallowingNoises(!!event.nutrition.swallowingNoises);
@@ -1594,15 +1649,32 @@ export default function App() {
   const latestNutrition = getLatestEventByType('NUTRITION');
   const latestDiaper = getLatestEventByType('DIAPER');
 
+  const getParentDisplayName = (parent: ParentType) =>
+    parent === 'PARENT_A' ? settings.parentAName : settings.parentBName;
+
+  const getSleepAttributionLabel = (event: BabyEvent) => {
+    const start = event.sleep?.loggedByStart;
+    const end = event.sleep?.loggedByEnd;
+    const nameStart = start ? getParentDisplayName(start) : getParentDisplayName(event.loggedBy);
+
+    if (!event.sleep?.endAt && start) {
+      return `מתחיל: ${nameStart}`;
+    }
+    if (start && end && start !== end) {
+      return `התחיל: ${getParentDisplayName(start)} · סיים: ${getParentDisplayName(end)}`;
+    }
+    return `רשם: ${nameStart}`;
+  };
+
   // Daily totals for nutrition summary
   const getTodayNutritionSummary = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jerusalem' });
     let offered = 0;
     let consumed = 0;
     let feedsCount = 0;
 
     events.forEach(e => {
-      const eventDate = e.timestamp.split('T')[0];
+      const eventDate = new Date(e.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Jerusalem' });
       if (eventDate === today && e.eventType === 'NUTRITION' && e.nutrition) {
         feedsCount++;
         if (e.nutrition.feedType === 'BOTTLE') {
@@ -2728,6 +2800,12 @@ export default function App() {
                         <p className="text-xs text-slate-300 font-medium mt-1 leading-relaxed">
                           {details}
                         </p>
+
+                        {e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BREAST' && e.nutrition.topUp && (
+                          <span className="inline-block mt-1.5 text-[10px] text-slate-400 font-bold bg-slate-950/60 px-2 py-0.5 rounded-full border border-slate-850/50">
+                            +{e.nutrition.topUp.consumedMl} מ״ל
+                          </span>
+                        )}
                         
                         {e.notes && (
                           <p className="text-xs text-slate-500 bg-slate-950/40 px-2.5 py-1.5 rounded-xl mt-2 border border-slate-900/50 inline-block">
@@ -2737,7 +2815,9 @@ export default function App() {
                         
                         <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-850/45">
                           <span className="text-[9px] text-slate-500 font-bold">
-                            רשם: {e.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}
+                            {e.eventType === 'SLEEP'
+                              ? getSleepAttributionLabel(e)
+                              : `רשם: ${getParentDisplayName(e.loggedBy)}`}
                           </span>
                           {e.quickRecorded && (
                             <span className="text-[9px] text-indigo-400 font-extrabold bg-indigo-950/45 border border-indigo-900/30 px-1.5 py-0.5 rounded-md">
@@ -3891,6 +3971,67 @@ export default function App() {
               </button>
             </form>
 
+            {/* BABY PROFILE */}
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
+              <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
+                <Baby className="w-5 h-5 text-pink-400" />
+                <span>פרטי תינוק</span>
+              </h3>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">שם התינוק</label>
+                  <input
+                    type="text"
+                    value={babyNameInput}
+                    onChange={(e) => setBabyNameInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    placeholder="שם התינוק"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">תאריך לידה</label>
+                  <input
+                    type="date"
+                    value={babyDobInput}
+                    onChange={(e) => setBabyDobInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
+                  />
+                </div>
+                <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-850 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-black text-slate-400 block">משקל לידה (גרם)</span>
+                    <span className="text-lg font-black text-slate-200">{babyBirthWeightInput} גרם</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setBabyBirthWeightInput(prev => Math.max(0, prev - 10))}
+                      className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBabyBirthWeightInput(prev => prev + 10)}
+                      className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveBabyProfile}
+                disabled={submitting || !babyNameInput.trim()}
+                className="w-full bg-indigo-650 hover:bg-indigo-700 disabled:opacity-50 text-white font-black py-2.5 rounded-2xl text-xs shadow-lg transition-all"
+              >
+                {submitting ? 'שומר...' : 'שמירה'}
+              </button>
+            </section>
+
             {/* CUSTOM ACTIVITIES CONFIG */}
             <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
               <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
@@ -4941,6 +5082,78 @@ export default function App() {
                               <label className="text-[10px] text-slate-400">משך זמן (דקות)</label>
                               <input type="number" value={breastDuration} onChange={(e) => setBreastDuration(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs" />
                             </div>
+                          </div>
+
+                          {/* Top-up bottle section */}
+                          <div className="pt-2 border-t border-slate-850/60">
+                            {!showTopUp ? (
+                              <button
+                                type="button"
+                                onClick={() => setShowTopUp(true)}
+                                className="w-full py-2 text-xs font-bold text-sky-400 bg-slate-950 border border-slate-850 rounded-xl hover:bg-slate-900 transition-all"
+                              >
+                                + תוסף בקבוק
+                              </button>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-black text-slate-300">תוסף בקבוק</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowTopUp(false)}
+                                    className="text-[10px] text-slate-500 hover:text-slate-300 font-bold"
+                                  >
+                                    הסתר
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-850">
+                                  <button
+                                    type="button"
+                                    onClick={() => setTopUpLiquidType('EXPRESSED_MILK')}
+                                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                      topUpLiquidType === 'EXPRESSED_MILK'
+                                        ? 'bg-slate-850 text-blue-300'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                  >
+                                    חלב שאוב
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTopUpLiquidType('FORMULA')}
+                                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                      topUpLiquidType === 'FORMULA'
+                                        ? 'bg-slate-850 text-blue-300'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                  >
+                                    פורמולה
+                                  </button>
+                                </div>
+                                <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-850 flex items-center justify-between">
+                                  <div>
+                                    <span className="text-xs font-black text-slate-400 block">כמות שנאכלה</span>
+                                    <span className="text-lg font-black text-slate-200">{topUpConsumedMl} מ״ל</span>
+                                  </div>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setTopUpConsumedMl(prev => Math.max(0, prev - 10))}
+                                      className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                                    >
+                                      <Minus className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setTopUpConsumedMl(prev => Math.min(300, prev + 10))}
+                                      className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

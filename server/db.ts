@@ -147,6 +147,8 @@ export async function getOpenSleepSession(): Promise<BabyEvent | null> {
   }
 }
 
+// Persists the full BabyEvent document as-is; optional payload fields
+// (e.g. sleep.loggedByStart, nutrition.topUp, settings.babyProfile) pass through passively.
 export async function saveEvent(event: BabyEvent): Promise<BabyEvent> {
   try {
     const docRef = doc(db, 'households', householdId, 'events', event.id);

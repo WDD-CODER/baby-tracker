@@ -7,17 +7,29 @@ export type ParentType = 'PARENT_A' | 'PARENT_B';
 
 export type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT' | 'PUMPING' | 'VOMITING';
 
+export interface BabyProfile {
+  name: string;
+  dateOfBirth: string; // ISO date string, YYYY-MM-DD
+  birthWeightGrams: number;
+}
+
 export interface UserSettings {
   userId: string;                  // fixed household constant 'shared-household'
   parentAName: string;             // default "אמא"
   parentBName: string;             // default "אבא"
   defaultBottleType: 'EXPRESSED_MILK' | 'FORMULA';
   customActivities: string[];
+  babyProfile?: BabyProfile;
 }
 
 export type SpitUpType = 'NONE' | 'LIGHT' | 'HEAVY_VOMIT';
 export type BreastSideType = 'LEFT' | 'RIGHT' | 'BOTH';
 export type FeedType = 'BREAST' | 'BOTTLE';
+
+export interface TopUpPayload {
+  liquidType: 'EXPRESSED_MILK' | 'FORMULA';
+  consumedMl: number;
+}
 
 export interface NutritionPayload {
   feedType: FeedType;
@@ -28,6 +40,7 @@ export interface NutritionPayload {
   amountConsumedMl?: number;          // CRITICAL - +/- large buttons
   spitUp?: SpitUpType;
   swallowingNoises?: boolean;
+  topUp?: TopUpPayload | null;        // breastfeeding top-up bottle
 }
 
 export type DiaperContentType = 'PEE' | 'POO' | 'BOTH';
@@ -51,6 +64,8 @@ export interface SleepPayload {
   endAt: string | null; // ISO string or null for in progress
   startLocation: SleepLocationType;
   durationMinutes?: number; // derived on close
+  loggedByStart?: ParentType; // parent who pressed "start sleep"
+  loggedByEnd?: ParentType; // parent who pressed "end sleep" (absent until session closes)
 }
 
 export interface ActivityPayload {
