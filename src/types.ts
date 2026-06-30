@@ -5,7 +5,7 @@
 
 export type ParentType = 'PARENT_A' | 'PARENT_B';
 
-export type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT';
+export type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT' | 'PUMPING' | 'VOMITING';
 
 export interface UserSettings {
   userId: string;                  // fixed household constant 'shared-household'
@@ -27,6 +27,7 @@ export interface NutritionPayload {
   amountOfferedMl?: number;           // CRITICAL - +/- large buttons
   amountConsumedMl?: number;          // CRITICAL - +/- large buttons
   spitUp?: SpitUpType;
+  swallowingNoises?: boolean;
 }
 
 export type DiaperContentType = 'PEE' | 'POO' | 'BOTH';
@@ -62,6 +63,17 @@ export interface WeightPayload {
   percentile?: number;             // optional
 }
 
+export interface PumpingPayload {
+  leftAmountMl: number;
+  rightAmountMl: number;
+}
+
+export type VomitingSizeType = 'SMALL' | 'MEDIUM' | 'LARGE';
+
+export interface VomitingPayload {
+  size: VomitingSizeType;
+}
+
 export interface BabyEvent {
   id: string;
   timestamp: string; // ISO string
@@ -73,4 +85,7 @@ export interface BabyEvent {
   sleep?: SleepPayload;
   activity?: ActivityPayload;
   weight?: WeightPayload;
+  pumping?: PumpingPayload;
+  vomiting?: VomitingPayload;
+  quickRecorded?: boolean;
 }

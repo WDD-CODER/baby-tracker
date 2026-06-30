@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Baby, 
@@ -20,6 +20,8 @@ import {
   TrendingUp, 
   ChevronRight, 
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   User, 
   Droplet, 
   Activity, 
@@ -30,17 +32,108 @@ import {
   PlusCircle,
   HelpCircle
 } from 'lucide-react';
-import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType } from './types';
+import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType } from './types';
+
+const DiaperIcon = ({ className = "w-5 h-5", strokeWidth = 2 }: { className?: string, strokeWidth?: number }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth={strokeWidth}
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    style={{ display: 'inline-block', verticalAlign: 'middle' }}
+  >
+    <path d="M3 5h18" />
+    <path d="M3 5v5a9 9 0 0 0 18 0V5" />
+    <path d="M3 10c1.5 2 4.5 4 9 4s7.5-2 9-4" />
+    <path d="M7 5v3" />
+    <path d="M17 5v3" />
+  </svg>
+);
+
+const getSleepCycleAnalysis = (durationMinutes: number | undefined) => {
+  if (durationMinutes === undefined) {
+    return {
+      status: 'ACTIVE',
+      text: 'שינה פעילה',
+      icon: '💤',
+      colorClass: 'text-indigo-400 bg-indigo-950/40 border-indigo-500/30',
+      bgClass: 'bg-indigo-950/15',
+      borderClass: 'border-indigo-500/30 border-r-indigo-500',
+      toastMsg: 'השינה החלה! שעון מעקב מופעל'
+    };
+  }
+  if (durationMinutes < 30) {
+    return {
+      status: 'BAD',
+      text: 'מחזור שינה לא מוצלח',
+      icon: '❌',
+      colorClass: 'text-rose-300 bg-rose-950/40 border-rose-900/30',
+      bgClass: 'bg-rose-950/20',
+      borderClass: 'border-rose-900/30 border-r-rose-500',
+      toastMsg: `השינה הסתיימה. מחזור שינה לא מוצלח (${durationMinutes} דק׳) ❌`
+    };
+  } else if (durationMinutes < 45) {
+    return {
+      status: 'GOOD',
+      text: 'מחזור שינה טוב',
+      icon: '👍',
+      colorClass: 'text-indigo-300 bg-indigo-950/40 border-indigo-900/30',
+      bgClass: 'bg-indigo-950/15',
+      borderClass: 'border-indigo-900/30 border-r-indigo-500',
+      toastMsg: `השינה הסתיימה. מחזור שינה טוב (${durationMinutes} דק׳) 👍`
+    };
+  } else {
+    return {
+      status: 'EXCELLENT',
+      text: 'מחזור שינה מצוין ומעולה!',
+      icon: '🌟',
+      colorClass: 'text-emerald-300 bg-emerald-950/40 border-emerald-900/30',
+      bgClass: 'bg-emerald-950/15',
+      borderClass: 'border-emerald-900/30 border-r-emerald-500',
+      toastMsg: `השינה הסתיימה. מחזור שינה מצוין ומעולה! (${durationMinutes} דק׳) 🌟`
+    };
+  }
+};
 
 export default function App() {
   // App state
   const [activeTab, setActiveTab] = useState<'log' | 'timeline' | 'dashboards' | 'settings'>('log');
   const [events, setEvents] = useState<BabyEvent[]>([]);
+  const lastLoggedTimestamps = useRef<{ [key: string]: number }>({});
   const [carouselIndex, setCarouselIndex] = useState(0);
 
   const getLocalDatetimeString = (date = new Date()) => {
     const tzOffset = date.getTimezoneOffset() * 60000;
     return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+
+  const checkAndRegisterDoubleSubmit = (type: string): boolean => {
+    const now = Date.now();
+    
+    // Check local ref first (very fast, covers rapid clicks)
+    const lastRefTime = lastLoggedTimestamps.current[type] || 0;
+    if (now - lastRefTime < 10000) {
+      console.log(`Canceled duplicate action request to prevent double-click error (type: ${type})`);
+      return true;
+    }
+
+    // Check state events array
+    const matching = events.filter(e => e.eventType === type);
+    if (matching.length > 0) {
+      const times = matching.map(e => new Date(e.timestamp).getTime());
+      const maxTime = Math.max(...times);
+      if (now - maxTime < 10000) {
+        console.log(`Canceled duplicate action request to prevent double-click error (type: ${type})`);
+        return true;
+      }
+    }
+
+    // Update local ref
+    lastLoggedTimestamps.current[type] = now;
+    return false;
   };
 
   const [settings, setSettings] = useState<UserSettings>({
@@ -51,13 +144,16 @@ export default function App() {
     customActivities: ['שגרת בוקר', 'בייבי יוגה', 'שירים', 'טיול בעגלה', 'עיסוי תינוקות']
   });
   const [openSleepSession, setOpenSleepSession] = useState<BabyEvent | null>(null);
-  const [activeParent, setActiveParent] = useState<ParentType>('PARENT_A');
+  const [activeParent, setActiveParent] = useState<ParentType>(() => {
+    const stored = localStorage.getItem('bt_active_parent');
+    return (stored === 'PARENT_A' || stored === 'PARENT_B') ? stored : 'PARENT_A';
+  });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Active Logging bottom sheets
-  const [activeSheet, setActiveSheet] = useState<'bottle' | 'diaper' | 'activity' | 'weight' | 'edit' | null>(null);
+  const [activeSheet, setActiveSheet] = useState<'bottle' | 'diaper' | 'activity' | 'weight' | 'pumping' | 'vomiting' | 'sleep' | 'edit' | null>(null);
   const [editingEvent, setEditingEvent] = useState<BabyEvent | null>(null);
 
   // Stats Data
@@ -65,16 +161,16 @@ export default function App() {
   const [sleepStats, setSleepStats] = useState<any[]>([]);
   const [diaperStats, setDiaperStats] = useState<any[]>([]);
   const [weightStats, setWeightStats] = useState<any[]>([]);
-  const [dashboardDays, setDashboardDays] = useState<number>(7);
+  const [dashboardDays, setDashboardDays] = useState<number>(1);
 
   // Timer state for in-progress sleep
   const [sleepDurationStr, setSleepDurationStr] = useState<string>('00:00');
 
   // Input states for form entry
-  const [bottleFeedType, setBottleFeedType] = useState<'BOTTLE' | 'BREAST'>('BOTTLE');
+  const [bottleFeedType, setBottleFeedType] = useState<'BOTTLE' | 'BREAST'>('BREAST');
   const [bottleLiquidType, setBottleLiquidType] = useState<'EXPRESSED_MILK' | 'FORMULA'>('EXPRESSED_MILK');
   const [amountOfferedMl, setAmountOfferedMl] = useState<number>(120);
-  const [amountConsumedMl, setAmountConsumedMl] = useState<number>(110);
+  const [amountConsumedMl, setAmountConsumedMl] = useState<number>(120);
   const [breastSide, setBreastSide] = useState<'LEFT' | 'RIGHT' | 'BOTH'>('BOTH');
   const [breastDuration, setBreastDuration] = useState<number>(15);
   const [spitUp, setSpitUp] = useState<'NONE' | 'LIGHT' | 'HEAVY_VOMIT'>('NONE');
@@ -92,14 +188,42 @@ export default function App() {
   const [weightGrams, setWeightGrams] = useState<number>(3500);
   const [percentile, setPercentile] = useState<number | ''>('');
   
+  const [swallowingNoises, setSwallowingNoises] = useState<boolean>(false);
+
+  // Pumping & Vacuuming states
+  const [pumpLeftAmount, setPumpLeftAmount] = useState<number>(60);
+  const [pumpRightAmount, setPumpRightAmount] = useState<number>(60);
+  const [dismissedPumpingBfId, setDismissedPumpingBfId] = useState<string | null>(null);
+  const [sentPumpingBfId, setSentPumpingBfId] = useState<string | null>(null);
+  const [feedingNotificationSent, setFeedingNotificationSent] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
   const [customTimestamp, setCustomTimestamp] = useState<string>('');
+  const [customSleepStartAt, setCustomSleepStartAt] = useState<string>('');
+  const [customSleepEndAt, setCustomSleepEndAt] = useState<string>('');
+  const [sleepLocation, setSleepLocation] = useState<SleepLocationType>('CRIB');
+  const [sleepLogType, setSleepLogType] = useState<'TIMER' | 'MANUAL'>('TIMER');
   const [showNoteField, setShowNoteField] = useState(false);
 
   // Settings modification states
   const [parentANameInput, setParentANameInput] = useState('אמא');
   const [parentBNameInput, setParentBNameInput] = useState('אבא');
   const [defaultBottleTypeInput, setDefaultBottleTypeInput] = useState<'EXPRESSED_MILK' | 'FORMULA'>('EXPRESSED_MILK');
+
+  // Dashboard collapse states and clear data confirmation state
+  const [expandedDashboards, setExpandedDashboards] = useState<{ [key: string]: boolean }>({
+    nutrition: false,
+    sleep: false,
+    diaper: false,
+    pumping: false,
+    weight: false,
+    vomiting: false
+  });
+  const [showQuickVomitingMenu, setShowQuickVomitingMenu] = useState(false);
+  const [vomitingSizeInput, setVomitingSizeInput] = useState<VomitingSizeType>('MEDIUM');
+  const [clearCutoffDate, setClearCutoffDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [clearType, setClearType] = useState<'all' | 'cutoff' | null>(null);
 
   // Export states
   const [exportFromDate, setExportFromDate] = useState<string>(() => {
@@ -110,6 +234,256 @@ export default function App() {
   const [exportToDate, setExportToDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
+
+  // Big Nap and Bath warning state and auto day-reset tracking
+  const [dismissedBigNapWarning, setDismissedBigNapWarning] = useState<boolean>(() => {
+    const todayStr = new Date().toDateString();
+    return localStorage.getItem(`bt_dismissed_bignap_${todayStr}`) === 'true';
+  });
+  const [dismissedBathWarning, setDismissedBathWarning] = useState<boolean>(() => {
+    const todayStr = new Date().toDateString();
+    return localStorage.getItem(`bt_dismissed_bath_${todayStr}`) === 'true';
+  });
+  const [lastCalculatedDay, setLastCalculatedDay] = useState<string>(() => new Date().toDateString());
+
+  // ==========================================
+  // Quick Press vs Hold (Long-press) State Machine
+  // ==========================================
+  const [showQuickDiaperMenu, setShowQuickDiaperMenu] = useState(false);
+  const [holdTimeoutId, setHoldTimeoutId] = useState<any>(null);
+  const [pressStartTimestamp, setPressStartTimestamp] = useState<number>(0);
+  const [pressStartPos, setPressStartPos] = useState<{ x: number, y: number } | null>(null);
+  const [activePressButton, setActivePressButton] = useState<'meal' | 'diaper' | 'sleep' | 'vomiting' | null>(null);
+
+  const handleQuickMealLog = async () => {
+    if (checkAndRegisterDoubleSubmit('NUTRITION')) {
+      showToast('נרשמה ארוחה ב-10 השניות האחרונות! הפעולה בוטלה למניעת כפל.');
+      return;
+    }
+    setSubmitting(true);
+    const timestamp = new Date().toISOString();
+    
+    const payload: BabyEvent = {
+      id: 'quick-meal-' + Date.now(),
+      timestamp,
+      eventType: 'NUTRITION',
+      loggedBy: activeParent,
+      notes: '',
+      quickRecorded: true,
+      nutrition: {
+        feedType: 'BREAST',
+        spitUp: 'NONE'
+      }
+    };
+
+    try {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showToast('הנקה מהירה נרשמה בהצלחה 🤱');
+        fetchEvents();
+      } else {
+        showToast('תקלה ברישום ארוחה מהירה');
+      }
+    } catch (err) {
+      showToast('שגיאת תקשורת עם השרת');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleQuickDiaperLog = async (contains: DiaperContentType) => {
+    if (checkAndRegisterDoubleSubmit('DIAPER')) {
+      showToast('נרשם חיתול ב-10 השניות האחרונות! הפעולה בוטלה למניעת כפל.');
+      return;
+    }
+    setSubmitting(true);
+    const timestamp = new Date().toISOString();
+    let containsLabel = '';
+    if (contains === 'PEE') containsLabel = 'פיפי 💦';
+    else if (contains === 'POO') containsLabel = 'קקי 💩';
+    else containsLabel = 'פיפי וקקי 💦💩';
+
+    const payload: BabyEvent = {
+      id: 'quick-diaper-' + Date.now(),
+      timestamp,
+      eventType: 'DIAPER',
+      loggedBy: activeParent,
+      notes: '',
+      quickRecorded: true,
+      diaper: {
+        contains,
+        peeVolume: contains !== 'POO' ? 'LIGHT' : undefined,
+        pooAmount: contains !== 'PEE' ? 'MEDIUM' : undefined,
+        pooColor: contains !== 'PEE' ? 'YELLOW_MUSTARD' : undefined,
+        pooTexture: contains !== 'PEE' ? 'SEEDY' : undefined
+      }
+    };
+
+    try {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showToast(`חיתול נרשם: ${containsLabel}`);
+        fetchEvents();
+        setShowQuickDiaperMenu(false);
+      } else {
+        showToast('תקלה ברישום חיתול מהיר');
+      }
+    } catch (err) {
+      showToast('שגיאת תקשורת עם השרת');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleQuickVomitingLog = async (size: VomitingSizeType) => {
+    if (checkAndRegisterDoubleSubmit('VOMITING')) {
+      showToast('נרשמה פליטה ב-10 השניות האחרונות! הפעולה בוטלה למניעת כפל.');
+      return;
+    }
+    setSubmitting(true);
+    const timestamp = new Date().toISOString();
+    let sizeLabel = '';
+    if (size === 'SMALL') sizeLabel = 'פליטה קלה 💧';
+    else if (size === 'MEDIUM') sizeLabel = 'פליטה בינונית 💦';
+    else sizeLabel = 'הקאה גדולה ⚠️';
+
+    const payload: Partial<BabyEvent> = {
+      timestamp,
+      eventType: 'VOMITING',
+      loggedBy: activeParent,
+      notes: '',
+      quickRecorded: true,
+      vomiting: {
+        size
+      }
+    };
+
+    try {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showToast(`פליטה נרשמה: ${sizeLabel}`);
+        fetchEvents();
+        setShowQuickVomitingMenu(false);
+      } else {
+        showToast('תקלה ברישום פליטה מהירה');
+      }
+    } catch (err) {
+      showToast('שגיאת תקשורת עם השרת');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePointerDownButton = (buttonType: 'meal' | 'diaper' | 'sleep' | 'vomiting', e: React.PointerEvent) => {
+    if (e.button !== 0) return; // Only trigger for main left click / single touch
+    
+    setActivePressButton(buttonType);
+    setPressStartTimestamp(Date.now());
+    setPressStartPos({ x: e.clientX, y: e.clientY });
+
+    // Start a timer for 550ms for holding down
+    const timer = setTimeout(() => {
+      try {
+        navigator.vibrate?.(50); // Tactile haptic feedback
+      } catch (err) {}
+      
+      if (buttonType === 'meal') {
+        openAddSheet('bottle');
+      } else if (buttonType === 'diaper') {
+        openAddSheet('diaper');
+      } else if (buttonType === 'sleep') {
+        openAddSheet('sleep' as any);
+      } else if (buttonType === 'vomiting') {
+        openAddSheet('vomiting' as any);
+      }
+      
+      // Nullify start timestamp so pointerUp knows it was already handled as a long click
+      setPressStartTimestamp(0);
+      setActivePressButton(null);
+      setPressStartPos(null);
+    }, 550);
+
+    setHoldTimeoutId(timer);
+  };
+
+  const handlePointerUpButton = (buttonType: 'meal' | 'diaper' | 'sleep' | 'vomiting', e: React.PointerEvent) => {
+    if (holdTimeoutId) {
+      clearTimeout(holdTimeoutId);
+      setHoldTimeoutId(null);
+    }
+
+    if (pressStartPos) {
+      const diffX = Math.abs(e.clientX - pressStartPos.x);
+      const diffY = Math.abs(e.clientY - pressStartPos.y);
+      if (diffX > 10 || diffY > 10) {
+        setPressStartTimestamp(0);
+        setActivePressButton(null);
+        setPressStartPos(null);
+        return;
+      }
+    }
+
+    if (pressStartTimestamp > 0 && activePressButton === buttonType) {
+      const duration = Date.now() - pressStartTimestamp;
+      if (duration < 550) {
+        // Quick short press!
+        if (buttonType === 'meal') {
+          handleQuickMealLog();
+        } else if (buttonType === 'diaper') {
+          setShowQuickDiaperMenu(prev => !prev);
+        } else if (buttonType === 'sleep') {
+          handleQuickSleepToggle();
+        } else if (buttonType === 'vomiting') {
+          setShowQuickVomitingMenu(prev => !prev);
+        }
+      }
+    }
+
+    setPressStartTimestamp(0);
+    setActivePressButton(null);
+    setPressStartPos(null);
+  };
+
+  const handlePointerMoveButton = (e: React.PointerEvent) => {
+    if (pressStartPos) {
+      const diffX = Math.abs(e.clientX - pressStartPos.x);
+      const diffY = Math.abs(e.clientY - pressStartPos.y);
+      if (diffX > 10 || diffY > 10) {
+        if (holdTimeoutId) {
+          clearTimeout(holdTimeoutId);
+          setHoldTimeoutId(null);
+        }
+        setPressStartTimestamp(0);
+        setActivePressButton(null);
+        setPressStartPos(null);
+      }
+    }
+  };
+
+  const handlePointerCancelButton = () => {
+    if (holdTimeoutId) {
+      clearTimeout(holdTimeoutId);
+      setHoldTimeoutId(null);
+    }
+    setPressStartTimestamp(0);
+    setActivePressButton(null);
+    setPressStartPos(null);
+  };
 
   // Initialization
   useEffect(() => {
@@ -133,7 +507,7 @@ export default function App() {
   // Sync sleep session timer
   useEffect(() => {
     if (!openSleepSession) {
-      setSleepDurationStr('00:00');
+      setSleepDurationStr('00:00:00');
       return;
     }
 
@@ -141,19 +515,482 @@ export default function App() {
       const start = new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp);
       const diffMs = Date.now() - start.getTime();
       if (diffMs < 0) {
-        setSleepDurationStr('00:00');
+        setSleepDurationStr('00:00:00');
         return;
       }
-      const totalMinutes = Math.floor(diffMs / (1000 * 60));
-      const hours = Math.floor(totalMinutes / 60);
-      const mins = totalMinutes % 60;
-      setSleepDurationStr(`${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`);
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      const secs = totalSecs % 60;
+      
+      const hoursStr = hours.toString().padStart(2, '0');
+      const minsStr = mins.toString().padStart(2, '0');
+      const secsStr = secs.toString().padStart(2, '0');
+      
+      setSleepDurationStr(`${hoursStr}:${minsStr}:${secsStr}`);
     };
 
     updateTimer();
-    const interval = setInterval(updateTimer, 15000); // update every 15s
+    const interval = setInterval(updateTimer, 1000); // Live tick every 1 second
     return () => clearInterval(interval);
   }, [openSleepSession]);
+
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 5000); // Check every 5s for awake minutes and time updates
+    return () => clearInterval(timer);
+  }, []);
+
+  // Monitor day change to reset the big nap and bath dismissal states
+  useEffect(() => {
+    const currentDay = new Date(currentTime).toDateString();
+    if (currentDay !== lastCalculatedDay) {
+      setLastCalculatedDay(currentDay);
+      setDismissedBigNapWarning(false);
+      setDismissedBathWarning(false);
+    }
+  }, [currentTime, lastCalculatedDay]);
+
+  const getLastWakeUpTime = () => {
+    const lastCompletedSleep = events.find(e => e.eventType === 'SLEEP' && e.sleep?.endAt);
+    if (lastCompletedSleep && lastCompletedSleep.sleep?.endAt) {
+      return new Date(lastCompletedSleep.sleep.endAt).getTime();
+    }
+    return null;
+  };
+
+  // Send local push notification to the phone/browser
+  const sendLocalNotification = (title: string, body: string) => {
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        try {
+          new Notification(title, { body, icon: '/favicon.ico' });
+        } catch (e) {
+          console.log("Notification constructor blocked or failed in iframe:", e);
+        }
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            try {
+              new Notification(title, { body, icon: '/favicon.ico' });
+            } catch (e) {
+              console.log("Notification failed after permission grant:", e);
+            }
+          }
+        });
+      }
+    }
+  };
+
+  // Request notification permission on first mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Compute countdown and overdue status for next feeding
+  const getFeedingCountdown = () => {
+    const latestFeed = events.find(e => e.eventType === 'NUTRITION');
+    if (!latestFeed) {
+      return { display: '02:00:00', isOverdue: false, secondsLeft: 7200 };
+    }
+    const lastFeedTime = new Date(latestFeed.timestamp).getTime();
+    const targetTime = lastFeedTime + 2 * 60 * 60 * 1000; // 2 hours since last feeding
+    const diffMs = targetTime - currentTime;
+    
+    if (diffMs <= 0) {
+      return { display: '00:00:00', isOverdue: true, secondsLeft: 0 };
+    }
+    
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    const display = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return { display, isOverdue: false, secondsLeft: totalSeconds };
+  };
+
+  const getLatestBreastfeeding = () => {
+    return events.find(e => e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BREAST');
+  };
+
+  const getTodayPumpingCount = () => {
+    const today = new Date().toDateString();
+    const pumpingEvents = events.filter(e => {
+      if (e.eventType !== 'PUMPING') return false;
+      const d = new Date(e.timestamp);
+      if (d.toDateString() !== today) return false;
+      const hrs = d.getHours();
+      return hrs >= 8 && hrs < 16;
+    });
+    return pumpingEvents.length;
+  };
+
+  // Helper to check if a pumping event occurred after a specific timestamp
+  const hasPumpedAfterTimestamp = (timestampStr: string) => {
+    const timeMs = new Date(timestampStr).getTime();
+    return events.some(e => e.eventType === 'PUMPING' && new Date(e.timestamp).getTime() > timeMs);
+  };
+
+  // Determine if pumping reminder should show
+  const checkPumpingReminderStatus = () => {
+    const date = new Date(currentTime);
+    const hrs = date.getHours();
+    // Only between 8:00 AM and 4:00 PM (8:00 to 16:00)
+    if (hrs < 8 || hrs >= 16) return false;
+
+    // Only if today's pumping sessions are less than 3
+    if (getTodayPumpingCount() >= 3) return false;
+
+    const latestBf = getLatestBreastfeeding();
+    if (!latestBf) return false;
+
+    // Has 15 minutes passed since breastfeeding?
+    const bfTime = new Date(latestBf.timestamp).getTime();
+    const diffMs = currentTime - bfTime;
+    const fifteenMinutesMs = 15 * 60 * 1000;
+    
+    if (diffMs < fifteenMinutesMs) return false;
+
+    // Has user already pumped after this breastfeeding session?
+    if (hasPumpedAfterTimestamp(latestBf.timestamp)) return false;
+
+    // Has user already dismissed this breastfeeding session's reminder?
+    if (dismissedPumpingBfId === latestBf.id) return false;
+
+    return true;
+  };
+
+  const showPumpingReminder = checkPumpingReminderStatus();
+
+  // Handle pumping dismissal (won't show again for this specific breastfeeding event)
+  const handleDismissPumping = () => {
+    const latestBf = getLatestBreastfeeding();
+    if (latestBf) {
+      setDismissedPumpingBfId(latestBf.id);
+    }
+  };
+
+  // Active check to trigger phone push notifications
+  useEffect(() => {
+    // 1. Feeding Overdue Notification
+    const feedingStatus = getFeedingCountdown();
+    if (feedingStatus.isOverdue) {
+      if (!feedingNotificationSent) {
+        sendLocalNotification("זמן האכלה הגיע! 🍼", "חלפו שעתיים מאז ההאכלה האחרונה. האכלה דחופה נדרשת!");
+        setFeedingNotificationSent(true);
+      }
+    } else {
+      if (feedingNotificationSent) {
+        setFeedingNotificationSent(false);
+      }
+    }
+
+    // 2. Breast Milk Pumping Reminder Notification
+    const date = new Date(currentTime);
+    const hrs = date.getHours();
+    if (hrs >= 8 && hrs < 16 && getTodayPumpingCount() < 3) {
+      const latestBf = getLatestBreastfeeding();
+      if (latestBf) {
+        const bfTime = new Date(latestBf.timestamp).getTime();
+        const diffMs = currentTime - bfTime;
+        const fifteenMinutesMs = 15 * 60 * 1000;
+        
+        // If 15 minutes have passed, we haven't pumped, we haven't dismissed, and we haven't sent the notification yet
+        if (diffMs >= fifteenMinutesMs && 
+            !hasPumpedAfterTimestamp(latestBf.timestamp) && 
+            dismissedPumpingBfId !== latestBf.id && 
+            sentPumpingBfId !== latestBf.id) {
+          
+          sendLocalNotification("שאיבת חלב מונעת 🍼🤱", "חלפו 15 דקות מאז ההנקה האחרונה. הגיע הזמן לבצע שאיבה מונעת לשמירה!");
+          setSentPumpingBfId(latestBf.id);
+        }
+      }
+    }
+  }, [currentTime, events, dismissedPumpingBfId, sentPumpingBfId, feedingNotificationSent]);
+
+  const isNapSlotTime = () => {
+    const date = new Date(currentTime);
+    const hour = date.getHours();
+    return hour >= 12 && hour < 16;
+  };
+
+  const isBathSlotTime = () => {
+    const date = new Date(currentTime);
+    const hour = date.getHours();
+    return hour >= 17 && hour < 21;
+  };
+
+  const isBigNapRecorded = () => {
+    const todayStr = new Date(currentTime).toDateString();
+    
+    // Find if there is a sleep event on the current day that is >= 45 minutes
+    // and started/ended in the midday range 11:30 - 15:30 (or overlapping 12:00 - 15:00)
+    const nap = events.find(e => {
+      if (e.eventType !== 'SLEEP') return false;
+      const eventDateStr = new Date(e.timestamp).toDateString();
+      if (eventDateStr !== todayStr) return false;
+      
+      const start = new Date(e.sleep?.startAt || e.timestamp);
+      const startHour = start.getHours();
+      const duration = e.sleep?.durationMinutes || 0;
+      
+      // Also account for currently active sleep session
+      let activeDuration = 0;
+      if (openSleepSession && openSleepSession.id === e.id) {
+        const startActive = new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp);
+        activeDuration = Math.floor((currentTime - startActive.getTime()) / (1000 * 60));
+      }
+      
+      const finalDuration = Math.max(duration, activeDuration);
+      
+      // Midday check (starts between 11:00 and 15:15)
+      const isMidday = startHour >= 11 && startHour < 16;
+      
+      return isMidday && finalDuration >= 45;
+    });
+    
+    if (nap) return true;
+
+    // Additionally check if we currently have an active sleep session that
+    // started during midday and has already passed 30 minutes
+    if (openSleepSession && openSleepSession.sleep) {
+      const start = new Date(openSleepSession.sleep.startAt);
+      const startHour = start.getHours();
+      const isMidday = startHour >= 11 && startHour < 16;
+      const activeDurationMin = Math.floor((currentTime - start.getTime()) / (1000 * 60));
+      if (isMidday && activeDurationMin >= 30) {
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
+  const getBabyDayEvents = (allEvents: BabyEvent[]) => {
+    const now = new Date();
+    const startOfTodayBabyDay = new Date(now);
+    startOfTodayBabyDay.setHours(6, 0, 0, 0);
+
+    // If it's before 6:00 AM today, then the baby day started at 6:00 AM yesterday
+    if (now.getHours() < 6) {
+      startOfTodayBabyDay.setDate(startOfTodayBabyDay.getDate() - 1);
+    }
+
+    const babyDayTimestamp = startOfTodayBabyDay.getTime();
+
+    return allEvents.filter(e => {
+      return new Date(e.timestamp).getTime() >= babyDayTimestamp;
+    });
+  };
+
+  const getCutoffDate = () => {
+    const now = new Date();
+    const startOfTodayBabyDay = new Date(now);
+    startOfTodayBabyDay.setHours(6, 0, 0, 0);
+    if (now.getHours() < 6) {
+      startOfTodayBabyDay.setDate(startOfTodayBabyDay.getDate() - 1);
+    }
+    const cutoff = new Date(startOfTodayBabyDay);
+    cutoff.setDate(cutoff.getDate() - (dashboardDays - 1));
+    return cutoff;
+  };
+
+  const getFeedingDashboardData = () => {
+    const cutoffDate = getCutoffDate();
+    
+    const feedingEvents = events.filter(e => {
+      if (e.eventType !== 'NUTRITION' || !e.nutrition) return false;
+      return new Date(e.timestamp) >= cutoffDate;
+    });
+
+    const groups: { [dateStr: string]: BabyEvent[] } = {};
+    feedingEvents.forEach(e => {
+      const d = new Date(e.timestamp);
+      const dateStr = d.toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      if (!groups[dateStr]) {
+        groups[dateStr] = [];
+      }
+      groups[dateStr].push(e);
+    });
+
+    return Object.keys(groups).map(dateStr => {
+      const dayEvents = groups[dateStr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return {
+        dateStr,
+        dayEvents
+      };
+    }).sort((a, b) => {
+      if (a.dayEvents.length === 0 || b.dayEvents.length === 0) return 0;
+      const dateA = new Date(a.dayEvents[0].timestamp).getTime();
+      const dateB = new Date(b.dayEvents[0].timestamp).getTime();
+      return dateB - dateA;
+    });
+  };
+
+  const getDiaperDashboardData = () => {
+    const cutoffDate = getCutoffDate();
+    
+    const diaperEvents = events.filter(e => {
+      if (e.eventType !== 'DIAPER' || !e.diaper) return false;
+      return new Date(e.timestamp) >= cutoffDate;
+    });
+
+    const groups: { [dateStr: string]: BabyEvent[] } = {};
+    diaperEvents.forEach(e => {
+      const d = new Date(e.timestamp);
+      const dateStr = d.toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      if (!groups[dateStr]) {
+        groups[dateStr] = [];
+      }
+      groups[dateStr].push(e);
+    });
+
+    return Object.keys(groups).map(dateStr => {
+      const dayEvents = groups[dateStr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return {
+        dateStr,
+        dayEvents
+      };
+    }).sort((a, b) => {
+      if (a.dayEvents.length === 0 || b.dayEvents.length === 0) return 0;
+      const dateA = new Date(a.dayEvents[0].timestamp).getTime();
+      const dateB = new Date(b.dayEvents[0].timestamp).getTime();
+      return dateB - dateA;
+    });
+  };
+
+  const getPumpingDashboardData = () => {
+    const cutoffDate = getCutoffDate();
+    
+    const pumpingEvents = events.filter(e => {
+      if (e.eventType !== 'PUMPING' || !e.pumping) return false;
+      return new Date(e.timestamp) >= cutoffDate;
+    });
+
+    const groups: { [dateStr: string]: BabyEvent[] } = {};
+    pumpingEvents.forEach(e => {
+      const d = new Date(e.timestamp);
+      const dateStr = d.toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      if (!groups[dateStr]) {
+        groups[dateStr] = [];
+      }
+      groups[dateStr].push(e);
+    });
+
+    return Object.keys(groups).map(dateStr => {
+      const dayEvents = groups[dateStr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return {
+        dateStr,
+        dayEvents
+      };
+    }).sort((a, b) => {
+      if (a.dayEvents.length === 0 || b.dayEvents.length === 0) return 0;
+      const dateA = new Date(a.dayEvents[0].timestamp).getTime();
+      const dateB = new Date(b.dayEvents[0].timestamp).getTime();
+      return dateB - dateA;
+    });
+  };
+
+  const getVomitingDashboardData = () => {
+    const cutoffDate = getCutoffDate();
+
+    const vomitingEvents = events.filter(e => {
+      if (e.eventType !== 'VOMITING') return false;
+      return new Date(e.timestamp) >= cutoffDate;
+    });
+
+    const groups: { [dateStr: string]: { dayEvents: BabyEvent[] } } = {};
+    vomitingEvents.forEach(e => {
+      const d = new Date(e.timestamp);
+      const dateStr = d.toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      if (!groups[dateStr]) {
+        groups[dateStr] = { dayEvents: [] };
+      }
+      groups[dateStr].dayEvents.push(e);
+    });
+
+    return Object.keys(groups).map(dateStr => {
+      return {
+        dateStr,
+        dayEvents: groups[dateStr].dayEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      };
+    }).sort((a, b) => {
+      if (a.dayEvents.length === 0 || b.dayEvents.length === 0) return 0;
+      const dateA = new Date(a.dayEvents[0].timestamp).getTime();
+      const dateB = new Date(b.dayEvents[0].timestamp).getTime();
+      return dateB - dateA;
+    });
+  };
+
+  const getSleepTimelineData = () => {
+    const cutoffDate = getCutoffDate();
+
+    const sleepEvents = events.filter(e => {
+      if (e.eventType !== 'SLEEP' || !e.sleep) return false;
+      return new Date(e.timestamp) >= cutoffDate;
+    });
+
+    const groups: { [dateStr: string]: BabyEvent[] } = {};
+    sleepEvents.forEach(e => {
+      const d = new Date(e.sleep?.startAt || e.timestamp);
+      const dateStr = d.toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      if (!groups[dateStr]) {
+        groups[dateStr] = [];
+      }
+      groups[dateStr].push(e);
+    });
+
+    return Object.keys(groups).map(dateStr => {
+      const dayEvents = groups[dateStr].sort((a, b) => {
+        const startA = new Date(a.sleep?.startAt || a.timestamp).getTime();
+        const startB = new Date(b.sleep?.startAt || b.timestamp).getTime();
+        return startA - startB;
+      });
+
+      const items: any[] = [];
+      for (let i = 0; i < dayEvents.length; i++) {
+        const current = dayEvents[i];
+        const start = new Date(current.sleep?.startAt || current.timestamp);
+        const end = current.sleep?.endAt ? new Date(current.sleep.endAt) : new Date();
+        const duration = current.sleep?.durationMinutes || Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
+
+        items.push({
+          type: 'SLEEP',
+          event: current,
+          start,
+          end,
+          duration,
+          location: current.sleep?.startLocation || 'CRIB'
+        });
+
+        if (i < dayEvents.length - 1) {
+          const next = dayEvents[i + 1];
+          const nextStart = new Date(next.sleep?.startAt || next.timestamp);
+          const gapMs = nextStart.getTime() - end.getTime();
+          const gapMinutes = Math.max(0, Math.floor(gapMs / (1000 * 60)));
+          items.push({
+            type: 'AWAKE_GAP',
+            gapMinutes
+          });
+        }
+      }
+
+      return {
+        dateStr,
+        items
+      };
+    }).sort((a, b) => {
+      const dateA = a.items[0]?.start ? new Date(a.items[0].start).getTime() : 0;
+      const dateB = b.items[0]?.start ? new Date(b.items[0].start).getTime() : 0;
+      return dateB - dateA;
+    });
+  };
 
   // Load stats when dashboard days or active tab changes
   useEffect(() => {
@@ -215,9 +1052,7 @@ export default function App() {
 
   async function fetchStats() {
     try {
-      const from = new Date();
-      from.setDate(from.getDate() - dashboardDays);
-      const fromStr = from.toISOString();
+      const fromStr = getCutoffDate().toISOString();
 
       const [nutRes, sleepRes, diaperRes, weightRes] = await Promise.all([
         fetch(`/api/stats/nutrition?from=${fromStr}`),
@@ -241,6 +1076,39 @@ export default function App() {
     showToast(`המשתמש הוחלף ל-${parent === 'PARENT_A' ? settings.parentAName : settings.parentBName}`);
   };
 
+  const handleClearData = async (type: 'all' | 'cutoff') => {
+    setSubmitting(true);
+    try {
+      let body: any = {};
+      if (type === 'cutoff') {
+        // Find start of day in local time as ISO
+        const cutoffStart = new Date(`${clearCutoffDate}T00:00:00`);
+        body.before = cutoffStart.toISOString();
+      }
+
+      const res = await fetch('/api/events/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        showToast(type === 'all' ? 'כל נתוני המערכת נמחקו ואותחלו מחדש ✨' : 'הנתונים הישנים נמחקו בהצלחה. המערכת עודכנה ✨');
+        fetchEvents();
+        checkOpenSleepSession();
+        fetchStats();
+      } else {
+        showToast('אירעה שגיאה במחיקת הנתונים');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('שגיאה בחיבור לשרת');
+    } finally {
+      setSubmitting(false);
+      setClearType(null);
+    }
+  };
+
   // State machine sleep/wake trigger
   const handleSleepToggle = async (location: SleepLocationType = 'CRIB') => {
     setSubmitting(true);
@@ -259,7 +1127,9 @@ export default function App() {
         if (data.sleep?.endAt) {
           // Closed session
           setOpenSleepSession(null);
-          showToast('השינה הסתיימה! התיעוד נשמר בהצלחה');
+          const dur = data.sleep.durationMinutes || 0;
+          const analysis = getSleepCycleAnalysis(dur);
+          showToast(analysis.toastMsg);
         } else {
           // Started session
           setOpenSleepSession(data);
@@ -275,8 +1145,60 @@ export default function App() {
     }
   };
 
+  const handleQuickSleepToggle = async () => {
+    if (checkAndRegisterDoubleSubmit('SLEEP')) {
+      showToast('שונה מצב שינה ב-10 השניות האחרונות! הפעולה בוטלה למניעת כפל.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/sleep/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          loggedBy: activeParent,
+          startLocation: 'CRIB',
+          quickRecorded: true
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sleep?.endAt) {
+          const dur = data.sleep.durationMinutes || 0;
+          const analysis = getSleepCycleAnalysis(dur);
+          showToast(`בוקר טוב! ${analysis.toastMsg}`);
+          setOpenSleepSession(null);
+        } else {
+          showToast('לילה טוב! שינה מהירה החלה 💤');
+          setOpenSleepSession(data);
+        }
+        fetchEvents();
+      }
+    } catch (e) {
+      showToast('שגיאה בשינוי מצב שינה מהיר');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    let targetType = 'NUTRITION';
+    if (activeSheet === 'diaper') targetType = 'DIAPER';
+    else if (activeSheet === 'sleep') targetType = 'SLEEP';
+    else if (activeSheet === 'activity') targetType = 'ACTIVITY';
+    else if (activeSheet === 'weight') targetType = 'WEIGHT';
+    else if (activeSheet === 'tummyTime') targetType = 'TUMMY_TIME';
+    else if (activeSheet === 'bath') targetType = 'BATH';
+    else if (activeSheet === 'pumping') targetType = 'PUMPING';
+    else if (activeSheet === 'vomiting') targetType = 'VOMITING';
+
+    if (checkAndRegisterDoubleSubmit(targetType)) {
+      showToast('נרשמה פעולה מסוג זה ב-10 השניות האחרונות! הפעולה בוטלה למניעת כפל.');
+      return;
+    }
+
     setSubmitting(true);
 
     const timestamp = customTimestamp ? new Date(customTimestamp).toISOString() : new Date().toISOString();
@@ -296,7 +1218,8 @@ export default function App() {
         amountConsumedMl: bottleFeedType === 'BOTTLE' ? amountConsumedMl : undefined,
         breastSide: bottleFeedType === 'BREAST' ? breastSide : undefined,
         durationMinutes: bottleFeedType === 'BREAST' ? breastDuration : undefined,
-        spitUp: spitUp !== 'NONE' ? spitUp : undefined
+        spitUp: spitUp !== 'NONE' ? spitUp : undefined,
+        swallowingNoises: swallowingNoises
       };
     } else if (activeSheet === 'diaper') {
       payload.eventType = 'DIAPER';
@@ -319,6 +1242,25 @@ export default function App() {
         weightGrams,
         percentile: percentile !== '' ? Number(percentile) : undefined
       };
+    } else if (activeSheet === 'pumping') {
+      payload.eventType = 'PUMPING';
+      payload.pumping = {
+        leftAmountMl: pumpLeftAmount,
+        rightAmountMl: pumpRightAmount
+      };
+    } else if (activeSheet === 'vomiting') {
+      payload.eventType = 'VOMITING';
+      payload.vomiting = {
+        size: vomitingSizeInput
+      };
+    } else if (activeSheet === 'sleep') {
+      payload.eventType = 'SLEEP';
+      payload.sleep = {
+        startAt: customSleepStartAt ? new Date(customSleepStartAt).toISOString() : new Date().toISOString(),
+        endAt: customSleepEndAt ? new Date(customSleepEndAt).toISOString() : new Date().toISOString(),
+        startLocation: sleepLocation
+      };
+      payload.timestamp = payload.sleep.startAt;
     }
 
     try {
@@ -365,7 +1307,8 @@ export default function App() {
         amountConsumedMl: bottleFeedType === 'BOTTLE' ? amountConsumedMl : undefined,
         breastSide: bottleFeedType === 'BREAST' ? breastSide : undefined,
         durationMinutes: bottleFeedType === 'BREAST' ? breastDuration : undefined,
-        spitUp
+        spitUp,
+        swallowingNoises: swallowingNoises
       };
     } else if (editingEvent.eventType === 'DIAPER' && editingEvent.diaper) {
       payload.diaper = {
@@ -385,11 +1328,24 @@ export default function App() {
         weightGrams,
         percentile: percentile !== '' ? Number(percentile) : undefined
       };
+    } else if (editingEvent.eventType === 'PUMPING' && editingEvent.pumping) {
+       payload.pumping = {
+         leftAmountMl: pumpLeftAmount,
+         rightAmountMl: pumpRightAmount
+       };
     } else if (editingEvent.eventType === 'SLEEP' && editingEvent.sleep) {
-      payload.sleep = {
-        ...editingEvent.sleep,
-        startLocation: editingEvent.sleep.startLocation
-      };
+       const startAtIso = customSleepStartAt ? new Date(customSleepStartAt).toISOString() : editingEvent.sleep.startAt;
+       const endAtIso = customSleepEndAt ? new Date(customSleepEndAt).toISOString() : null;
+       payload.sleep = {
+         startAt: startAtIso,
+         endAt: endAtIso,
+         startLocation: sleepLocation
+       };
+       payload.timestamp = startAtIso;
+    } else if (editingEvent.eventType === 'VOMITING') {
+       payload.vomiting = {
+         size: vomitingSizeInput
+       };
     }
 
     try {
@@ -502,7 +1458,16 @@ export default function App() {
 
   const resetForm = () => {
     setNoteText('');
-    setCustomTimestamp(getLocalDatetimeString());
+    const nowStr = getLocalDatetimeString();
+    setCustomTimestamp(nowStr);
+
+    const startObj = new Date(Date.now() - 60 * 60 * 1000);
+    const startStr = getLocalDatetimeString(startObj);
+    setCustomSleepStartAt(startStr);
+    setCustomSleepEndAt(nowStr);
+    setSleepLocation('CRIB');
+    setSleepLogType('TIMER');
+
     setShowNoteField(true);
     setEditingEvent(null);
     
@@ -510,10 +1475,11 @@ export default function App() {
     setBottleFeedType('BOTTLE');
     setBottleLiquidType(settings.defaultBottleType);
     setAmountOfferedMl(120);
-    setAmountConsumedMl(110);
+    setAmountConsumedMl(120);
     setBreastSide('BOTH');
     setBreastDuration(15);
     setSpitUp('NONE');
+    setSwallowingNoises(false);
 
     // Diaper defaults
     setDiaperContains('PEE');
@@ -531,9 +1497,16 @@ export default function App() {
     const latestWeightEvent = events.find(e => e.eventType === 'WEIGHT' && e.weight);
     setWeightGrams(latestWeightEvent?.weight?.weightGrams || 3500);
     setPercentile(latestWeightEvent?.weight?.percentile || '');
+
+    // Pumping defaults
+    setPumpLeftAmount(60);
+    setPumpRightAmount(60);
+
+    // Vomiting defaults
+    setVomitingSizeInput('SMALL');
   };
 
-  const openAddSheet = (type: 'bottle' | 'diaper' | 'activity' | 'weight') => {
+  const openAddSheet = (type: 'bottle' | 'diaper' | 'activity' | 'weight' | 'pumping' | 'vomiting') => {
     resetForm();
     setActiveSheet(type);
   };
@@ -556,6 +1529,7 @@ export default function App() {
         setBreastDuration(event.nutrition.durationMinutes || 15);
       }
       setSpitUp(event.nutrition.spitUp || 'NONE');
+      setSwallowingNoises(!!event.nutrition.swallowingNoises);
     } else if (event.eventType === 'DIAPER' && event.diaper) {
       setDiaperContains(event.diaper.contains);
       if (event.diaper.peeVolume) setPeeVolume(event.diaper.peeVolume);
@@ -568,6 +1542,15 @@ export default function App() {
     } else if (event.eventType === 'WEIGHT' && event.weight) {
       setWeightGrams(event.weight.weightGrams);
       setPercentile(event.weight.percentile || '');
+    } else if (event.eventType === 'PUMPING' && event.pumping) {
+      setPumpLeftAmount(event.pumping.leftAmountMl);
+      setPumpRightAmount(event.pumping.rightAmountMl);
+    } else if (event.eventType === 'VOMITING' && event.vomiting) {
+      setVomitingSizeInput(event.vomiting.size);
+    } else if (event.eventType === 'SLEEP' && event.sleep) {
+      setCustomSleepStartAt(event.sleep.startAt ? event.sleep.startAt.slice(0, 16) : '');
+      setCustomSleepEndAt(event.sleep.endAt ? event.sleep.endAt.slice(0, 16) : '');
+      setSleepLocation(event.sleep.startLocation || 'CRIB');
     }
   };
 
@@ -633,10 +1616,132 @@ export default function App() {
   };
 
   const todaySummary = getTodayNutritionSummary();
+  const babyDayEvents = getBabyDayEvents(events);
+  const todayDiapers = babyDayEvents.filter(e => e.eventType === 'DIAPER').reverse();
+  const todayBottlesCount = babyDayEvents.filter(e => e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BOTTLE').length;
+  const todayBreastCount = babyDayEvents.filter(e => e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BREAST').length;
+  const todayPeeCount = babyDayEvents.filter(e => e.eventType === 'DIAPER' && e.diaper?.contains === 'PEE').length;
+  const todayPooCount = babyDayEvents.filter(e => e.eventType === 'DIAPER' && e.diaper?.contains === 'POO').length;
+  const todayBothCount = babyDayEvents.filter(e => e.eventType === 'DIAPER' && e.diaper?.contains === 'BOTH').length;
+
+  const todayPumpingEvents = babyDayEvents.filter(e => e.eventType === 'PUMPING').reverse();
+  const todayPumpingTotalLeft = todayPumpingEvents.reduce((acc, e) => acc + (e.pumping?.leftAmountMl || 0), 0);
+  const todayPumpingTotalRight = todayPumpingEvents.reduce((acc, e) => acc + (e.pumping?.rightAmountMl || 0), 0);
+  const todayPumpingTotal = todayPumpingTotalLeft + todayPumpingTotalRight;
+
+  const getTodaySleepStats = () => {
+    const sleepEvents = babyDayEvents.filter(e => e.eventType === 'SLEEP');
+    let totalMins = 0;
+    sleepEvents.forEach(e => {
+      totalMins += e.sleep?.durationMinutes || 0;
+    });
+    const hrs = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+    const count = sleepEvents.length;
+    return { hrs, mins, count };
+  };
+
+  const todaySleepStats = getTodaySleepStats();
+
+  const lastWakeUp = getLastWakeUpTime();
+  const awakeDiffMs = lastWakeUp ? (currentTime - lastWakeUp) : 0;
+  const awakeMinutes = Math.max(0, Math.floor(awakeDiffMs / (1000 * 60)));
+  const awakeHours = Math.floor(awakeMinutes / 60);
+  const awakeMins = awakeMinutes % 60;
+
+  const isBathTimeActive = isBathSlotTime() && !dismissedBathWarning;
+  const okayAwakeLimit = isBathTimeActive ? 60 : 45;
+  const yellowAwakeLimit = isBathTimeActive ? 75 : 60;
+  const redAwakeLimit = isBathTimeActive ? 90 : 60;
+  const awakeWidgetMinMinutes = isBathTimeActive ? 45 : 35;
+
+  const getAppThemeBgClass = () => {
+    // Check feeding overdue status first (highest priority visual warning)
+    const feedingStatus = getFeedingCountdown();
+    if (feedingStatus.isOverdue) {
+      return "bg-gradient-to-b from-red-950/80 via-slate-950 to-slate-950 text-slate-100";
+    }
+
+    if (openSleepSession) {
+      if (isNapSlotTime()) {
+        return "bg-gradient-to-b from-indigo-950/90 via-slate-950 to-slate-950 text-slate-100";
+      }
+      return "bg-slate-950 text-slate-100";
+    }
+
+    if (awakeMinutes > awakeWidgetMinMinutes) {
+      if (awakeMinutes <= okayAwakeLimit) {
+        return "bg-gradient-to-b from-yellow-950/60 via-slate-950 to-slate-950 text-slate-100";
+      } else if (awakeMinutes <= yellowAwakeLimit) {
+        return "bg-gradient-to-b from-orange-950/60 via-slate-950 to-slate-950 text-slate-100";
+      } else if (isBathTimeActive && awakeMinutes < redAwakeLimit) {
+        return "bg-gradient-to-b from-amber-950/65 via-slate-950 to-slate-950 text-slate-100";
+      } else {
+        return "bg-gradient-to-b from-rose-950/75 via-slate-950 to-slate-950 text-slate-100";
+      }
+    }
+
+    if (isNapSlotTime()) {
+      return "bg-gradient-to-b from-indigo-950/90 via-slate-950 to-slate-950 text-slate-100";
+    }
+
+    return "bg-slate-950 text-slate-100";
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none pb-24" dir="rtl">
+    <div className={`min-h-screen flex flex-col font-sans select-none pb-24 transition-all duration-700 ${getAppThemeBgClass()}`} dir="rtl">
       
+      {/* Feeding Overdue critical banner */}
+      {getFeedingCountdown().isOverdue && (
+        <div className={`border-b text-slate-100 py-3.5 px-4 text-xs font-black text-center flex items-center justify-center gap-2.5 shadow-lg transition-all duration-300 ${
+          openSleepSession 
+            ? 'bg-gradient-to-r from-emerald-600 via-teal-900 to-emerald-600 border-emerald-500/40 text-emerald-100' 
+            : 'bg-gradient-to-r from-red-900 via-rose-950 to-red-900 border-red-500/40 text-red-100 animate-pulse'
+        }`}>
+          <span className="text-sm">{openSleepSession ? '🍼✨' : '🍼🚨'}</span>
+          <span>
+            {openSleepSession 
+              ? 'זמן האכלה הגיע, אך התינוק ישן כעת 💤. זוהי תזכורת ידידותית להאכיל כשיתעורר.' 
+              : 'עברו יותר משעתיים מאז הארוחה האחרונה! יש להאכיל את התינוק כעת.'}
+          </span>
+        </div>
+      )}
+
+      {/* Breast milk pumping reminder banner */}
+      {showPumpingReminder && (
+        <div className="bg-gradient-to-r from-fuchsia-950 via-slate-900 to-fuchsia-950 border-b border-fuchsia-500/30 text-fuchsia-100 py-3.5 px-4 text-xs font-bold text-center flex items-center justify-between gap-2 shadow-md">
+          <div className="flex items-center gap-2 text-right">
+            <span className="text-sm">🤱🍼</span>
+            <span>עברו 15 דקות מההנקה האחרונה. זהו הזמן המומלץ לשאיבת חלב מונעת (שאיבה {getTodayPumpingCount() + 1}/3 להיום).</span>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveSheet('pumping')}
+              className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-[11px] font-black px-3 py-1.5 rounded-xl transition-all shadow-sm cursor-pointer"
+            >
+              בוצע! תיעוד שאיבה ✔️
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDismissPumping()}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-400 p-1.5 rounded-lg transition-colors cursor-pointer"
+              title="בטל תזכורת זו"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Midday Big Nap recommendation banner */}
+      {isNapSlotTime() && (
+        <div className="bg-gradient-to-r from-indigo-950/90 via-slate-900/95 to-indigo-950/90 border-b border-indigo-500/30 text-indigo-100 py-3 px-4 text-xs font-bold text-center flex items-center justify-center gap-2 shadow-inner transition-all duration-300">
+          <Moon className="w-4 h-4 text-indigo-400 animate-pulse shrink-0" />
+          <span>צהריים טובים! חלון זמן מומלץ לשנת צהריים גדולה (12:00 - 16:00) 😴</span>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-indigo-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-indigo-400 animate-bounce">
@@ -691,22 +1796,24 @@ export default function App() {
         
         {/* Status Highlights (At a Glance Strip) - Replaced by Timeline Carousel */}
         {activeTab === 'log' && (() => {
-          if (events.length === 0) {
+          const babyDayEvents = getBabyDayEvents(events);
+
+          if (babyDayEvents.length === 0) {
             return (
               <section className="bg-slate-900/95 border border-slate-800 rounded-3xl p-5 text-center flex flex-col items-center justify-center gap-2.5 shadow-md min-h-[140px]">
-                <span className="text-2xl animate-bounce">🌱</span>
-                <h3 className="text-sm font-black text-slate-200">מוכן לתיעוד ראשון!</h3>
+                <span className="text-2xl animate-pulse">☀️🌱</span>
+                <h3 className="text-sm font-black text-slate-200">יום חדש ורענן!</h3>
                 <p className="text-xs text-slate-400 leading-normal max-w-[280px]">
-                  אין עדיין אירועים מתועדים להיום. השתמש בכפתורים למטה כדי לתעד ארוחה, שינה או חיתול בקליק!
+                  עדיין לא נרשמו פעילויות ליום זה (החל מ-6:00 בבוקר). השתמשו בכפתורים למטה כדי לתעד ארוחה, שינה או חיתול!
                 </p>
               </section>
             );
           }
 
-          const safeIndex = Math.min(Math.max(0, carouselIndex), events.length - 1);
-          const activeEvent = events[safeIndex];
+          const safeIndex = Math.min(Math.max(0, carouselIndex), babyDayEvents.length - 1);
+          const activeEvent = babyDayEvents[safeIndex];
 
-          let icon = '🍼';
+          let icon: React.ReactNode = '🍼';
           let badgeColor = 'bg-blue-600 text-white';
           let shadowColor = 'shadow-blue-500/10';
           let title = '';
@@ -733,7 +1840,7 @@ export default function App() {
               details = `צד: ${activeEvent.nutrition.breastSide === 'LEFT' ? 'שמאל' : activeEvent.nutrition.breastSide === 'RIGHT' ? 'ימין' : 'שני הצדדים'} • ${activeEvent.nutrition.durationMinutes} דקות`;
             }
           } else if (activeEvent.eventType === 'DIAPER' && activeEvent.diaper) {
-            icon = '👶';
+            icon = <DiaperIcon className="w-5 h-5 text-white" strokeWidth={2.5} />;
             badgeColor = 'bg-teal-500 text-white';
             shadowColor = 'shadow-teal-500/10';
             borderTheme = 'border-teal-500/30';
@@ -753,12 +1860,34 @@ export default function App() {
             }
             details = list.join(' • ');
           } else if (activeEvent.eventType === 'SLEEP' && activeEvent.sleep) {
-            icon = '💤';
-            badgeColor = 'bg-indigo-600 text-white';
-            shadowColor = 'shadow-indigo-500/10';
-            borderTheme = 'border-indigo-500/30';
-            title = 'שינה חכמה';
+            const isRunning = !activeEvent.sleep.endAt;
             const dur = activeEvent.sleep.durationMinutes;
+            const analysis = getSleepCycleAnalysis(isRunning ? undefined : dur);
+            icon = analysis.icon;
+            title = analysis.text;
+            
+            if (analysis.status === 'ACTIVE') {
+              badgeColor = 'bg-indigo-600 text-white animate-pulse';
+              shadowColor = 'shadow-indigo-500/10';
+              borderTheme = 'border-indigo-500/30';
+            } else if (analysis.status === 'BAD') {
+              badgeColor = 'bg-rose-600 text-white';
+              shadowColor = 'shadow-rose-500/10';
+              borderTheme = 'border-rose-500/30 bg-rose-950/10';
+            } else if (analysis.status === 'MINIMAL') {
+              badgeColor = 'bg-amber-500 text-white';
+              shadowColor = 'shadow-amber-500/10';
+              borderTheme = 'border-amber-500/30 bg-amber-950/10';
+            } else if (analysis.status === 'GOOD') {
+              badgeColor = 'bg-emerald-600 text-white';
+              shadowColor = 'shadow-emerald-500/10';
+              borderTheme = 'border-emerald-500/30 bg-emerald-950/10';
+            } else {
+              badgeColor = 'bg-violet-600 text-white';
+              shadowColor = 'shadow-violet-500/10';
+              borderTheme = 'border-violet-500/30 bg-violet-950/10';
+            }
+
             const durationText = dur ? `${Math.floor(dur / 60)}ש׳ ${dur % 60}ד׳` : 'ישן כעת';
             details = `מיקום: ${
               activeEvent.sleep.startLocation === 'CRIB' ? 'עריסה' : 
@@ -782,49 +1911,113 @@ export default function App() {
             if (activeEvent.weight.percentile) {
               details += ` • אחוזון ${activeEvent.weight.percentile}`;
             }
+          } else if (activeEvent.eventType === 'PUMPING' && activeEvent.pumping) {
+            icon = '🍼🤱';
+            badgeColor = 'bg-fuchsia-600 text-white';
+            shadowColor = 'shadow-fuchsia-500/10';
+            borderTheme = 'border-fuchsia-500/30';
+            title = 'שאיבת חלב מונעת';
+            details = `שמאל: ${activeEvent.pumping.leftAmountMl} מ״ל • ימין: ${activeEvent.pumping.rightAmountMl} מ״ל (סה״ך: ${activeEvent.pumping.leftAmountMl + activeEvent.pumping.rightAmountMl} מ״ל)`;
+          }
+
+          if (activeEvent.quickRecorded) {
+            details = '';
+            if (activeEvent.eventType === 'NUTRITION' && activeEvent.nutrition) {
+              if (activeEvent.nutrition.feedType === 'BREAST') {
+                title = 'הנקה 🤱';
+                icon = '🤱';
+                badgeColor = 'bg-sky-500 text-white';
+                shadowColor = 'shadow-sky-500/10';
+                borderTheme = 'border-sky-500/30';
+              } else {
+                title = 'האכלה 🍼';
+                icon = '🍼';
+                badgeColor = 'bg-blue-600 text-white';
+                shadowColor = 'shadow-blue-500/10';
+                borderTheme = 'border-blue-500/30';
+              }
+            } else if (activeEvent.eventType === 'DIAPER' && activeEvent.diaper) {
+              const contains = activeEvent.diaper.contains;
+              const containsLabel = contains === 'PEE' ? 'שתן' : contains === 'POO' ? 'צואה' : 'שתן וצואה';
+              title = `חיתול מהיר: ${containsLabel}`;
+              icon = <DiaperIcon className="w-5 h-5 text-white" strokeWidth={2.5} />;
+              badgeColor = 'bg-teal-500 text-white';
+              shadowColor = 'shadow-teal-500/10';
+              borderTheme = 'border-teal-500/30';
+            } else if (activeEvent.eventType === 'SLEEP' && activeEvent.sleep) {
+              title = 'שינה 💤';
+              icon = '💤';
+              badgeColor = 'bg-indigo-600 text-white';
+              shadowColor = 'shadow-indigo-500/10';
+              borderTheme = 'border-indigo-500/30';
+            }
           }
 
           return (
-            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 flex flex-col gap-3 relative shadow-lg">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 flex flex-col gap-3 relative shadow-lg select-none">
               {/* Top status header */}
               <div className="flex items-center justify-between border-b border-slate-850 pb-2">
                 <span className="text-[10px] text-slate-400 font-extrabold flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                  ציר זמן קרוסלה • {safeIndex + 1} מתוך {events.length}
+                  ציר זמן קרוסלה • {safeIndex + 1} מתוך {babyDayEvents.length}
                 </span>
                 <span className="text-[10px] text-slate-400 font-bold bg-slate-950 px-2.5 py-1 rounded-full border border-slate-850">
                   {getHebrewDateStr(activeEvent.timestamp)} • {getHeberwTimeStr(activeEvent.timestamp)}
                 </span>
               </div>
 
-              {/* Slider with Chevrons */}
-              <div className="flex items-center gap-2">
+              {/* Draggable Slider Row with Peeking next/prev cards */}
+              <div className="flex items-center gap-2 overflow-hidden w-full py-1">
                 
-                {/* Older Button (Moves index to right, goes back in time) */}
-                <button
-                  type="button"
-                  disabled={safeIndex >= events.length - 1}
-                  onClick={() => setCarouselIndex(prev => Math.min(events.length - 1, prev + 1))}
-                  className="p-1.5 bg-slate-950 hover:bg-slate-800 text-slate-400 disabled:opacity-20 disabled:pointer-events-none rounded-xl border border-slate-850 cursor-pointer"
-                  title="אירועים קודמים"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+                {/* Left Card Peek - Newer Event (safeIndex - 1) */}
+                {safeIndex > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCarouselIndex(prev => prev - 1)}
+                    className="w-[12%] h-[110px] bg-slate-950/40 border border-slate-850 rounded-2xl opacity-25 hover:opacity-50 transition-all flex flex-col items-center justify-center gap-1 select-none text-xs shrink-0 cursor-pointer overflow-hidden"
+                  >
+                    <span className="text-sm inline-flex items-center justify-center">
+                      {babyDayEvents[safeIndex - 1].eventType === 'NUTRITION' ? '🍼' : babyDayEvents[safeIndex - 1].eventType === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" /> : '💤'}
+                    </span>
+                    <span className="text-[8px] text-slate-500 font-mono font-bold leading-none">
+                      {getHeberwTimeStr(babyDayEvents[safeIndex - 1].timestamp)}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="w-[12%] h-[110px] bg-slate-950/10 border border-slate-850/10 border-dashed rounded-2xl shrink-0 opacity-10" />
+                )}
 
-                {/* Sliding Viewport */}
+                {/* Central Draggable Card Viewport */}
                 <div className="flex-1 min-w-0 overflow-hidden py-0.5">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={activeEvent.id}
+                      drag="x"
+                      dragConstraints={{ left: 0, right: 0 }}
+                      dragElastic={0.4}
+                      onDragEnd={(e, info) => {
+                        const threshold = 40;
+                        if (info.offset.x > threshold) {
+                          // Dragged right: show newer (decrement index)
+                          if (safeIndex > 0) {
+                            setCarouselIndex(prev => prev - 1);
+                          }
+                        } else if (info.offset.x < -threshold) {
+                          // Dragged left: show older (increment index)
+                          if (safeIndex < babyDayEvents.length - 1) {
+                            setCarouselIndex(prev => prev + 1);
+                          }
+                        }
+                      }}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -20 }}
                       transition={{ duration: 0.15, ease: 'easeInOut' }}
-                      className={`bg-slate-950/65 rounded-2xl p-3.5 border ${borderTheme} flex items-start gap-3 hover:bg-slate-950 transition-all cursor-pointer shadow-md ${shadowColor}`}
+                      className={`bg-slate-950/65 rounded-2xl p-3.5 border ${borderTheme} flex items-start gap-3 hover:bg-slate-950 transition-all cursor-grab active:cursor-grabbing shadow-md ${shadowColor}`}
                       onClick={() => openEditSheet(activeEvent)}
                     >
-                      {/* Round Badge */}
-                      <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 ${badgeColor} shadow-md`}>
+                      {/* Round Badge - uniform size for clean layout */}
+                      <div className={`w-11 h-11 text-xl rounded-2xl flex items-center justify-center shrink-0 ${badgeColor} shadow-md`}>
                         {icon}
                       </div>
 
@@ -836,9 +2029,11 @@ export default function App() {
                             {formatTimeAgo(activeEvent.timestamp)}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-300 font-medium leading-normal">{details}</p>
+                        {details && (
+                          <p className="text-xs text-slate-300 font-medium leading-normal">{details}</p>
+                        )}
                         
-                        {activeEvent.notes && (
+                        {!activeEvent.quickRecorded && activeEvent.notes && (
                           <div className="mt-2 text-[10px] text-slate-400 bg-slate-900/60 py-1 px-2 rounded-lg border border-slate-850/40 italic truncate">
                             💬 {activeEvent.notes}
                           </div>
@@ -846,29 +2041,38 @@ export default function App() {
 
                         <div className="mt-2 flex justify-between items-center text-[9px] text-slate-500 font-bold border-t border-slate-850/30 pt-1.5">
                           <span>נרשם ע״י {activeEvent.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}</span>
-                          <span className="text-indigo-400 font-black flex items-center gap-0.5 hover:underline">לחץ לעריכה ✏️</span>
+                          <span className="text-indigo-400 font-black flex items-center gap-0.5 hover:underline">
+                            {activeEvent.quickRecorded ? 'הגדרות ⚙️' : 'לחץ לעריכה ✏️'}
+                          </span>
                         </div>
                       </div>
                     </motion.div>
                   </AnimatePresence>
                 </div>
 
-                {/* Newer Button (Moves index to left, goes forward in time) */}
-                <button
-                  type="button"
-                  disabled={safeIndex <= 0}
-                  onClick={() => setCarouselIndex(prev => Math.max(0, prev - 1))}
-                  className="p-1.5 bg-slate-950 hover:bg-slate-800 text-slate-400 disabled:opacity-20 disabled:pointer-events-none rounded-xl border border-slate-850 cursor-pointer"
-                  title="אירועים חדשים יותר"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
+                {/* Right Card Peek - Older Event (safeIndex + 1) */}
+                {safeIndex < babyDayEvents.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCarouselIndex(prev => prev + 1)}
+                    className="w-[12%] h-[110px] bg-slate-950/40 border border-slate-850 rounded-2xl opacity-25 hover:opacity-50 transition-all flex flex-col items-center justify-center gap-1 select-none text-xs shrink-0 cursor-pointer overflow-hidden"
+                  >
+                    <span className="text-sm inline-flex items-center justify-center">
+                      {babyDayEvents[safeIndex + 1].eventType === 'NUTRITION' ? '🍼' : babyDayEvents[safeIndex + 1].eventType === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" /> : '💤'}
+                    </span>
+                    <span className="text-[8px] text-slate-500 font-mono font-bold leading-none">
+                      {getHeberwTimeStr(babyDayEvents[safeIndex + 1].timestamp)}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="w-[12%] h-[110px] bg-slate-950/10 border border-slate-850/10 border-dashed rounded-2xl shrink-0 opacity-10" />
+                )}
 
               </div>
 
               {/* Indicator dots */}
               <div className="flex justify-center gap-1 pt-0.5">
-                {events.slice(0, 8).map((ev, i) => (
+                {babyDayEvents.slice(0, 8).map((ev, i) => (
                   <span 
                     key={ev.id}
                     className={`h-1 rounded-full transition-all duration-200 ${
@@ -876,7 +2080,7 @@ export default function App() {
                     }`}
                   />
                 ))}
-                {events.length > 8 && <span className="text-[8px] text-slate-600 font-black pr-1">+{events.length - 8}</span>}
+                {babyDayEvents.length > 8 && <span className="text-[8px] text-slate-600 font-black pr-1">+{babyDayEvents.length - 8}</span>}
               </div>
 
             </div>
@@ -890,47 +2094,259 @@ export default function App() {
             {/* Quick Action Matrix - The Big 5 Buttons (Reachability Optimized) */}
             <section className="grid grid-cols-2 gap-3 mt-1">
               
-              {/* 1. Bottle/Nutrition Sheet Trigger */}
+              {/* Inline Quick Vomiting Options panel */}
+              <AnimatePresence>
+                {showQuickVomitingMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="col-span-2 bg-slate-900/95 border border-rose-500/40 rounded-3xl p-4 flex flex-col gap-3 shadow-xl z-10"
+                  >
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                      <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                        <span className="animate-ping w-2 h-2 rounded-full bg-rose-500 block" />
+                        רישום פליטה מהירה (הקלק לבחירה)
+                      </span>
+                      <button 
+                        onClick={() => setShowQuickVomitingMenu(false)}
+                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => handleQuickVomitingLog('SMALL')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-emerald-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">💧</span>
+                        <span className="text-xs font-black text-slate-200">פליטה קלה</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleQuickVomitingLog('MEDIUM')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-amber-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">💦</span>
+                        <span className="text-xs font-black text-slate-200">פליטה בינונית</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleQuickVomitingLog('LARGE')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-rose-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">⚠️</span>
+                        <span className="text-xs font-black text-slate-200">הקאה גדולה</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Inline Quick Diaper Options panel (pops up when clicking Diaper quickly, shown above) */}
+              <AnimatePresence>
+                {showQuickDiaperMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="col-span-2 bg-slate-900/95 border border-teal-500/40 rounded-3xl p-4 flex flex-col gap-3 shadow-xl z-10"
+                  >
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                      <span className="text-xs font-black text-teal-300 flex items-center gap-1.5">
+                        <span className="animate-ping w-2 h-2 rounded-full bg-teal-500 block" />
+                        רישום חיתול מהיר (הקלק לבחירה)
+                      </span>
+                      <button 
+                        onClick={() => setShowQuickDiaperMenu(false)}
+                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => handleQuickDiaperLog('PEE')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-blue-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">💦</span>
+                        <span className="text-xs font-black text-slate-200">פיפי בלבד</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleQuickDiaperLog('POO')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-amber-650 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">💩</span>
+                        <span className="text-xs font-black text-slate-200">קקי בלבד</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleQuickDiaperLog('BOTH')}
+                        className="bg-slate-950 border border-slate-800/80 hover:border-teal-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <span className="text-2xl">💦💩</span>
+                        <span className="text-xs font-black text-slate-200">שניהם יחד</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              
+              {/* 1. Bottle/Nutrition Sheet Trigger with Quick vs Long press */}
               <button 
-                onClick={() => openAddSheet('bottle')}
-                className="bg-slate-900/90 border border-slate-800 hover:border-blue-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
+                onPointerDown={(e) => handlePointerDownButton('meal', e)}
+                onPointerUp={(e) => handlePointerUpButton('meal', e)}
+                onPointerMove={handlePointerMoveButton}
+                onPointerCancel={handlePointerCancelButton}
+                onPointerLeave={handlePointerCancelButton}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
+                  activePressButton === 'meal' 
+                    ? 'scale-95 border-blue-500 bg-slate-850 shadow-blue-500/10' 
+                    : 'border-slate-800 hover:border-blue-500/40'
+                }`}
               >
-                <div className="w-12 h-12 bg-blue-550/35 text-blue-400 rounded-2xl flex items-center justify-center border border-blue-500/25">
+                <div className="w-11 h-11 bg-blue-550/30 text-blue-400 rounded-2xl flex items-center justify-center border border-blue-500/20">
                   🍼
                 </div>
-                <span className="text-base font-black text-blue-300">ארוחה / בקבוק</span>
+                <div className="text-center">
+                  <span className="text-base font-black text-blue-300 block">ארוחה / בקבוק</span>
+                  
+                  {/* Summary row */}
+                  <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[10px] font-bold">
+                    <span className="text-blue-400">🍼 בקבוקים: {todayBottlesCount}</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-sky-400">🤱 הנקות: {todayBreastCount}</span>
+                  </div>
+
+                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+                    קליק: ארוחה מהירה 🍼 | החזק: מלא 🤱
+                  </span>
+
+                  {/* Countdown display */}
+                  <div className={`mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-black font-mono inline-block ${
+                    getFeedingCountdown().isOverdue 
+                      ? openSleepSession 
+                        ? 'bg-emerald-500 text-slate-950 border border-emerald-400' 
+                        : 'bg-red-500 text-white animate-pulse' 
+                      : 'bg-slate-950 text-slate-300 border border-slate-800/80'
+                  }`}>
+                    {getFeedingCountdown().isOverdue 
+                      ? openSleepSession 
+                        ? 'הגיע זמן האכלה (תינוק ישן 💤)' 
+                        : 'האכלה דחופה! 🚨' 
+                      : `האכלה הבאה: ${getFeedingCountdown().display}`}
+                  </div>
+                </div>
               </button>
 
-              {/* 2. Diaper Sheet Trigger */}
+              {/* 2. Diaper Sheet Trigger with Quick vs Long press */}
               <button 
-                onClick={() => openAddSheet('diaper')}
-                className="bg-slate-900/90 border border-slate-800 hover:border-teal-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
+                onPointerDown={(e) => handlePointerDownButton('diaper', e)}
+                onPointerUp={(e) => handlePointerUpButton('diaper', e)}
+                onPointerMove={handlePointerMoveButton}
+                onPointerCancel={handlePointerCancelButton}
+                onPointerLeave={handlePointerCancelButton}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
+                  activePressButton === 'diaper' 
+                    ? 'scale-95 border-teal-500 bg-slate-850 shadow-teal-500/10' 
+                    : 'border-slate-800 hover:border-teal-500/40'
+                }`}
               >
-                <div className="w-12 h-12 bg-teal-550/35 text-teal-400 rounded-2xl flex items-center justify-center border border-teal-500/25">
-                  👶
+                <div className="w-11 h-11 bg-teal-550/30 text-teal-400 rounded-2xl flex items-center justify-center border border-teal-500/20">
+                  🧷
                 </div>
-                <span className="text-base font-black text-teal-300">החלפת חיתול</span>
+                <div className="text-center">
+                  <span className="text-base font-black text-teal-300 block">החלפת חיתול</span>
+
+                  {/* Summary row */}
+                  <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[9px] font-bold">
+                    <span className="text-blue-400">💦 {todayPeeCount}</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-amber-500">💩 {todayPooCount}</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-teal-400">💦💩 {todayBothCount}</span>
+                  </div>
+
+                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+                    קליק: מהיר 💦💩 | החזק: מלא 📋
+                  </span>
+                </div>
               </button>
+
+              {/* Awake Time Tracker Widget - ONLY visible when awake and > dynamic limit */}
+              {!openSleepSession && awakeMinutes > awakeWidgetMinMinutes && (
+                <div className={`col-span-2 rounded-3xl p-4 border flex items-center justify-between shadow-md transition-all duration-500 select-none ${
+                  awakeMinutes <= okayAwakeLimit
+                    ? 'bg-yellow-950/70 border-yellow-550/40 text-yellow-100'
+                    : awakeMinutes <= yellowAwakeLimit
+                      ? 'bg-orange-950/70 border-orange-550/40 text-orange-100'
+                      : isBathTimeActive && awakeMinutes < redAwakeLimit
+                        ? 'bg-amber-950/70 border-amber-550/40 text-amber-100 animate-pulse'
+                        : 'bg-rose-950/80 border-rose-555/50 text-rose-100 animate-pulse'
+                }`}>
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-3xl shadow-sm bg-slate-950/40">
+                      {awakeMinutes <= okayAwakeLimit
+                        ? '👶🙂'
+                        : awakeMinutes <= yellowAwakeLimit
+                          ? '👶🥱'
+                          : isBathTimeActive && awakeMinutes < redAwakeLimit
+                            ? '👶🛀'
+                            : '👶😫'}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 font-extrabold block mb-0.5">מעקב זמן עירות</span>
+                      <h3 className="text-sm font-black">
+                        {awakeMinutes <= okayAwakeLimit
+                          ? 'זמן עירות תקין ⚡'
+                          : awakeMinutes <= yellowAwakeLimit
+                            ? 'חלון שינה בקרוב! 🥱'
+                            : isBathTimeActive && awakeMinutes < redAwakeLimit
+                              ? 'זמן התארגנות לשינה / סיום אמבטיה 🛁'
+                              : 'עייפות יתר! להרדים מיד ⚠️'}
+                      </h3>
+                    </div>
+                  </div>
+                  
+                  <div className="text-left">
+                    <span className="text-[10px] text-slate-400 font-bold block mb-0.5">משך זמן ער</span>
+                    <span className="text-base font-mono font-black">
+                      {awakeHours > 0 
+                        ? `${awakeHours}ש׳ ${awakeMins}ד׳` 
+                        : `${awakeMins} דק׳`}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* 3. Sleep State Machine - Big Master Button */}
               <button 
-                onClick={() => {
-                  if (openSleepSession) {
-                    // Turn wake-up: trigger API call directly
-                    handleSleepToggle();
-                  } else {
-                    // Turn sleep: prompt location bottom sheet
-                    openAddSheet('sleep' as any);
-                  }
-                }}
-                className={`col-span-2 rounded-3xl p-5 flex items-center justify-between shadow-lg active:opacity-90 transition-all min-h-[90px] ${
+                onPointerDown={(e) => handlePointerDownButton('sleep', e)}
+                onPointerUp={(e) => handlePointerUpButton('sleep', e)}
+                onPointerMove={handlePointerMoveButton}
+                onPointerCancel={handlePointerCancelButton}
+                onPointerLeave={handlePointerCancelButton}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`col-span-2 rounded-3xl p-5 flex items-center justify-between shadow-lg transition-all min-h-[90px] select-none touch-none focus:outline-none cursor-pointer ${
+                  activePressButton === 'sleep'
+                    ? 'scale-[0.97] bg-slate-800/80'
+                    : ''
+                } ${
                   openSleepSession 
                     ? 'bg-rose-950/70 border border-rose-500/50 text-rose-100 shadow-rose-950/20' 
                     : 'bg-indigo-650 hover:bg-indigo-700 text-white border border-indigo-500/40'
                 }`}
               >
                 <div className="flex items-center gap-4">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
                     openSleepSession ? 'bg-rose-500 text-white' : 'bg-white text-indigo-600'
                   }`}>
                     <Moon className={`w-7 h-7 ${openSleepSession ? 'animate-pulse' : ''}`} />
@@ -939,8 +2355,8 @@ export default function App() {
                     <span className="text-xl font-black block">
                       {openSleepSession ? 'להעיר תינוק ⏰' : 'השכבה לישון 💤'}
                     </span>
-                    <span className="text-xs opacity-80 block mt-0.5">
-                      {openSleepSession ? 'סיים שינה עכשיו וחשב זמן' : 'זיהוי חכם בלחיצה אחת'}
+                    <span className="text-[10px] opacity-80 block mt-0.5 leading-tight font-medium">
+                      {openSleepSession ? 'קליק מהיר להעיר ⏰ | החזק להגדרת שינה' : 'קליק מהיר: שינה מהירה עכשיו 💤 | החזק: בחירת מיקום 📋'}
                     </span>
                   </div>
                 </div>
@@ -971,48 +2387,162 @@ export default function App() {
                 <span className="text-base font-black text-pink-300">שקילה רפואית</span>
               </button>
 
+              {/* 6. Vomiting Button */}
+              <button 
+                onPointerDown={(e) => handlePointerDownButton('vomiting', e)}
+                onPointerUp={(e) => handlePointerUpButton('vomiting', e)}
+                onPointerMove={handlePointerMoveButton}
+                onPointerCancel={handlePointerCancelButton}
+                onPointerLeave={handlePointerCancelButton}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`relative bg-slate-900/90 border rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/85 transition-all min-h-[120px] select-none touch-none focus:outline-none cursor-pointer ${
+                  activePressButton === 'vomiting' 
+                    ? 'scale-95 border-rose-500 bg-slate-850 shadow-rose-500/10' 
+                    : 'border-slate-800 hover:border-rose-550/45'
+                }`}
+              >
+                <div className="w-11 h-11 bg-rose-550/30 text-rose-400 rounded-2xl flex items-center justify-center border border-rose-500/20">
+                  🤮
+                </div>
+                <div className="text-center">
+                  <span className="text-base font-black text-rose-300 block">פליטות / הקאות</span>
+                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+                    קליק: מהיר 🤮 | החזק: מלא 📋
+                  </span>
+                </div>
+              </button>
+
             </section>
 
-            {/* Quick Live Health Monitor (Daily Intake Status) */}
-            <section className="bg-slate-900/90 border border-slate-800/85 rounded-3xl p-5 shadow-sm mt-1">
-              <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-black text-slate-100 flex items-center gap-2">
-                  <span>📊 מעקב הזנה יומי (היום)</span>
+            {/* Today's Diaper Quick Tracker Row */}
+            <section className="bg-slate-900/90 border border-slate-800/85 rounded-3xl p-4 shadow-sm mt-1">
+              <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+                <h3 className="text-xs font-black text-slate-100 flex items-center gap-2">
+                  <span className="text-teal-400">🧷</span>
+                  <span>סבב חיתולים יומי (היום)</span>
                 </h3>
-                <span className="text-[11px] font-bold text-slate-400">
-                  {todaySummary.feedsCount} ארוחות סה״כ
+                <span className="text-[10px] font-bold bg-teal-950 text-teal-300 px-2.5 py-1 rounded-full border border-teal-900/50">
+                  {todayDiapers.length} חיתולים
                 </span>
               </div>
-              
-              <div className="flex justify-between items-end mb-4">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">סך הכל שהוצע</span>
-                  <span className="text-3xl font-black text-slate-100">{todaySummary.offered} <small className="text-xs text-slate-400">מ״ל</small></span>
+
+              {/* Diapers Summary Counts */}
+              {todayDiapers.length > 0 && (
+                <div className="grid grid-cols-3 gap-1.5 mb-3.5 bg-slate-950/40 p-2 rounded-2xl border border-slate-850/50 text-center">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold">💦 שתן בלבד</span>
+                    <span className="text-sm font-black text-blue-400">{todayDiapers.filter(e => e.diaper?.contains === 'PEE').length}</span>
+                  </div>
+                  <div className="flex flex-col border-x border-slate-850">
+                    <span className="text-[10px] text-slate-400 font-bold">💩 צואה בלבד</span>
+                    <span className="text-sm font-black text-amber-500">{todayDiapers.filter(e => e.diaper?.contains === 'POO').length}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold">💦💩 שניהם</span>
+                    <span className="text-sm font-black text-teal-400">{todayDiapers.filter(e => e.diaper?.contains === 'BOTH').length}</span>
+                  </div>
                 </div>
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-0.5">נצרך בפועל</span>
-                  <span className="text-3xl font-black text-blue-400">{todaySummary.consumed} <small className="text-xs text-slate-400">מ״ל</small></span>
+              )}
+
+              {todayDiapers.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4 font-medium">לא נרשמו חיתולים היום (החל מ-6:00 בבוקר)</p>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto py-1 scrollbar-none">
+                  {todayDiapers.map((e) => {
+                    const contains = e.diaper?.contains || 'PEE';
+                    const timeStr = getHeberwTimeStr(e.timestamp);
+                    let emoji = '💦';
+                    let bgClass = 'bg-blue-950/40 border-blue-900/30 text-blue-300';
+
+                    if (contains === 'POO') {
+                      emoji = '💩';
+                      bgClass = 'bg-amber-950/40 border-amber-900/30 text-amber-300';
+                    } else if (contains === 'BOTH') {
+                      emoji = '💦💩';
+                      bgClass = 'bg-teal-950/40 border-teal-900/30 text-teal-300';
+                    }
+
+                    return (
+                      <button
+                        key={e.id}
+                        onClick={() => openEditSheet(e)}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-2xl border ${bgClass} hover:bg-slate-950 transition-all shrink-0 cursor-pointer min-w-[55px]`}
+                        title={`נרשם ע״י ${e.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}`}
+                      >
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm shadow-inner bg-slate-950/45">
+                          {emoji}
+                        </div>
+                        <span className="text-[9px] font-mono font-black">{timeStr}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+              )}
+            </section>
+
+            {/* Today's Pumping/Vacuuming Quick Tracker Row */}
+            <section className="bg-slate-900/90 border border-slate-800/85 rounded-3xl p-4 shadow-sm mt-3">
+              <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-fuchsia-400">🍼🤱</span>
+                  <h3 className="text-xs font-black text-slate-100">
+                    שאיבות חלב יומיות (היום)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAddSheet('pumping')}
+                  className="text-[10px] font-black bg-fuchsia-950 text-fuchsia-300 px-3 py-1.5 rounded-full border border-fuchsia-900/50 hover:bg-fuchsia-900 transition-all cursor-pointer"
+                >
+                  תיעוד שאיבה יזומה +
+                </button>
               </div>
 
-              {/* Delta highlights */}
-              {todaySummary.offered > 0 ? (
-                <div className="bg-slate-950/60 rounded-2xl p-3 border border-slate-800/80">
-                  <div className="flex justify-between items-center text-xs mb-1.5">
-                    <span className="text-slate-400 font-bold">חלב שלא נצרך / הפרש (Delta)</span>
-                    <span className="text-rose-400 font-black">
-                      {todaySummary.offered - todaySummary.consumed} מ״ל ({Math.round(((todaySummary.offered - todaySummary.consumed) / todaySummary.offered) * 100)}%)
-                    </span>
+              {/* Pumping Summary counts */}
+              {todayPumpingEvents.length > 0 && (
+                <div className="grid grid-cols-3 gap-1.5 mb-3.5 bg-slate-950/40 p-2 rounded-2xl border border-slate-850/50 text-center">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold">⬅️ שד שמאל</span>
+                    <span className="text-sm font-black text-fuchsia-400">{todayPumpingTotalLeft} מ״ל</span>
                   </div>
-                  <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-l from-blue-500 to-indigo-600 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.min(100, Math.round((todaySummary.consumed / todaySummary.offered) * 100))}%` }}
-                    />
+                  <div className="flex flex-col border-x border-slate-850">
+                    <span className="text-[10px] text-slate-400 font-bold">➡️ שד ימין</span>
+                    <span className="text-sm font-black text-fuchsia-400">{todayPumpingTotalRight} מ״ל</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold">🔄 סך הכל</span>
+                    <span className="text-sm font-black text-fuchsia-300">{todayPumpingTotal} מ״ל</span>
                   </div>
                 </div>
+              )}
+
+              {todayPumpingEvents.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4 font-medium">לא נרשמו שאיבות היום (שאיבות מונעות ורגילות)</p>
               ) : (
-                <p className="text-xs text-slate-500 text-center py-2 font-medium">לא תועד בקבוק להיום. הזן נתוני בקבוק כדי לראות ניתוח פערים.</p>
+                <div className="flex gap-2 overflow-x-auto py-1 scrollbar-none">
+                  {todayPumpingEvents.map((e) => {
+                    const left = e.pumping?.leftAmountMl || 0;
+                    const right = e.pumping?.rightAmountMl || 0;
+                    const total = left + right;
+                    const timeStr = getHeberwTimeStr(e.timestamp);
+
+                    return (
+                      <button
+                        key={e.id}
+                        onClick={() => openEditSheet(e)}
+                        className="flex flex-col items-center gap-1 p-2 rounded-2xl border bg-fuchsia-950/20 border-fuchsia-900/30 text-fuchsia-200 hover:bg-slate-950 transition-all shrink-0 cursor-pointer min-w-[70px]"
+                        title={`נרשם ע״י ${e.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}`}
+                      >
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm shadow-inner bg-slate-950/45">
+                          🍼
+                        </div>
+                        <span className="text-[10px] font-black">{total} מ״ל</span>
+                        <span className="text-[8px] opacity-75">{left}L / {right}R</span>
+                        <span className="text-[8px] font-mono font-black opacity-60 mt-0.5">{timeStr}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </section>
           </div>
@@ -1073,7 +2603,7 @@ export default function App() {
 
                 {events.map((e) => {
                   // Style based on eventType
-                  let icon = '🍼';
+                  let icon: React.ReactNode = '🍼';
                   let borderClass = 'border-r-4 border-r-blue-500';
                   let bgClass = 'bg-blue-950/20';
                   let title = '';
@@ -1097,8 +2627,11 @@ export default function App() {
                       title += ` (${e.nutrition.breastSide === 'LEFT' ? 'שמאל' : e.nutrition.breastSide === 'RIGHT' ? 'ימין' : 'שני הצדדים'})`;
                       details = `משך: ${e.nutrition.durationMinutes} דקות`;
                     }
+                    if (e.nutrition.swallowingNoises) {
+                      details += ` • 🦩 נשמעו קולות בליעה`;
+                    }
                   } else if (e.eventType === 'DIAPER' && e.diaper) {
-                    icon = '👶';
+                    icon = <DiaperIcon className="w-5 h-5 text-teal-400" strokeWidth={2.5} />;
                     borderClass = 'border-r-4 border-r-teal-500';
                     bgClass = 'bg-teal-950/15';
                     const contains = e.diaper.contains;
@@ -1118,11 +2651,27 @@ export default function App() {
                     }
                     details = list.join(' • ');
                   } else if (e.eventType === 'SLEEP' && e.sleep) {
-                    icon = '💤';
-                    borderClass = 'border-r-4 border-r-indigo-500';
-                    bgClass = 'bg-indigo-950/15';
-                    title = 'שינה מתועדת';
+                    const isRunning = !e.sleep.endAt;
                     const dur = e.sleep.durationMinutes;
+                    const analysis = getSleepCycleAnalysis(isRunning ? undefined : dur);
+                    
+                    icon = analysis.icon;
+                    title = analysis.text;
+                    
+                    if (analysis.status === 'ACTIVE') {
+                      borderClass = 'border-r-4 border-r-indigo-500';
+                      bgClass = 'bg-indigo-950/15';
+                    } else if (analysis.status === 'BAD') {
+                      borderClass = 'border-r-4 border-r-rose-500';
+                      bgClass = 'bg-rose-950/20';
+                    } else if (analysis.status === 'GOOD') {
+                      borderClass = 'border-r-4 border-r-indigo-500';
+                      bgClass = 'bg-indigo-950/15';
+                    } else {
+                      borderClass = 'border-r-4 border-r-emerald-500';
+                      bgClass = 'bg-emerald-950/15';
+                    }
+
                     const durationText = dur ? `${Math.floor(dur / 60)}ש ${dur % 60}ד` : 'לא הוגדר';
                     details = `משך: ${durationText} • תחילת שינה ב-${getHeberwTimeStr(e.sleep.startAt)}`;
                     if (e.sleep.endAt) {
@@ -1145,38 +2694,56 @@ export default function App() {
                     if (e.weight.percentile) {
                       details += ` • אחוזון: ${e.weight.percentile}%`;
                     }
+                  } else if (e.eventType === 'PUMPING' && e.pumping) {
+                    icon = '🍼🤱';
+                    borderClass = 'border-r-4 border-r-fuchsia-500';
+                    bgClass = 'bg-fuchsia-950/15';
+                    title = 'שאיבת חלב מונעת';
+                    details = `שמאל: ${e.pumping.leftAmountMl} מ״ל • ימין: ${e.pumping.rightAmountMl} מ״ל (סה״ך: ${e.pumping.leftAmountMl + e.pumping.rightAmountMl} מ״ל)`;
+                  } else if (e.eventType === 'VOMITING' && e.vomiting) {
+                    icon = '🤮';
+                    borderClass = 'border-r-4 border-r-rose-400';
+                    bgClass = 'bg-rose-950/15';
+                    title = 'תיעוד פליטה / הקאה';
+                    const sizeText = e.vomiting.size === 'SMALL' ? 'פליטה קלה 💧' : e.vomiting.size === 'MEDIUM' ? 'פליטה בינונית 💦' : 'הקאה גדולה ⚠️';
+                    details = `דרגה: ${sizeText}`;
                   }
 
                   return (
                     <div 
                       key={e.id} 
                       onClick={() => openEditSheet(e)}
-                      className={`relative flex items-start gap-3 border border-slate-850/60 p-3.5 rounded-2xl shadow-sm hover:bg-slate-900/60 active:scale-[0.99] transition-all cursor-pointer ${bgClass} ${borderClass}`}
+                      className={`relative flex items-start gap-4 p-3.5 rounded-3xl border border-slate-850 hover:border-slate-700/80 hover:bg-slate-900 transition-all cursor-pointer select-none text-right ${bgClass} ${borderClass}`}
                     >
-                      {/* Node Icon */}
-                      <div className="w-10 h-10 bg-slate-900 text-slate-100 rounded-xl flex items-center justify-center font-bold shrink-0 z-10 text-lg border border-slate-800/80">
+                      <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 text-lg shadow-sm bg-slate-950 border border-slate-800">
                         {icon}
                       </div>
-
-                      {/* Content details */}
-                      <div className="flex-1 min-w-0 text-right">
-                        <div className="flex justify-between items-baseline">
-                          <h4 className="text-sm font-black text-slate-100 truncate">{title}</h4>
-                          <span className="text-[10px] text-slate-400 font-mono font-bold shrink-0">
-                            {getHebrewDateStr(e.timestamp)} • {getHeberwTimeStr(e.timestamp)}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline gap-2">
+                          <h4 className="text-sm font-black text-slate-100">{title}</h4>
+                          <span className="text-[10px] font-mono font-black text-slate-500 shrink-0">
+                            {getHeberwTimeStr(e.timestamp)}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-300 font-medium mt-1 leading-normal">{details}</p>
+                        <p className="text-xs text-slate-300 font-medium mt-1 leading-relaxed">
+                          {details}
+                        </p>
                         
                         {e.notes && (
-                          <div className="mt-2 text-[11px] text-slate-400 bg-slate-950/60 py-1.5 px-2.5 rounded-lg border border-slate-850/50 italic">
-                            💬 {e.notes}
-                          </div>
+                          <p className="text-xs text-slate-500 bg-slate-950/40 px-2.5 py-1.5 rounded-xl mt-2 border border-slate-900/50 inline-block">
+                            📝 {e.notes}
+                          </p>
                         )}
-
-                        <div className="mt-1.5 flex justify-between items-center text-[9px] text-slate-500 font-bold">
-                          <span>רשם: {e.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}</span>
-                          <span className="text-indigo-400 hover:underline">ערוך ✏️</span>
+                        
+                        <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-850/45">
+                          <span className="text-[9px] text-slate-500 font-bold">
+                            רשם: {e.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}
+                          </span>
+                          {e.quickRecorded && (
+                            <span className="text-[9px] text-indigo-400 font-extrabold bg-indigo-950/45 border border-indigo-900/30 px-1.5 py-0.5 rounded-md">
+                              ⚡ מהיר
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1190,190 +2757,1017 @@ export default function App() {
         {/* TAB 3: MEDICAL GROUPED DASHBOARDS */}
         {activeTab === 'dashboards' && (
           <div className="flex flex-col gap-4">
-            
-            {/* Range Toggle Header */}
-            <div className="flex items-center justify-between bg-slate-900 p-2 rounded-2xl border border-slate-800/80">
-              <span className="text-xs font-black text-slate-300 pr-2">טווח נתונים:</span>
-              <div className="flex gap-1">
-                {[7, 14, 30].map(days => (
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black text-slate-100">📊 דאשבורדים ומדדים</h2>
+              
+              <div className="bg-slate-950 p-1 rounded-2xl border border-slate-850 flex gap-1">
+                {[1, 3, 7, 14].map((days) => (
                   <button
                     key={days}
+                    type="button"
                     onClick={() => setDashboardDays(days)}
-                    className={`px-3 py-1 rounded-xl text-xs font-black transition-all ${
-                      dashboardDays === days 
-                        ? 'bg-indigo-600 text-white shadow' 
-                        : 'text-slate-400 hover:text-slate-200'
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      dashboardDays === days
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-300'
                     }`}
                   >
-                    {days === 7 ? 'שבוע' : days === 14 ? 'שבועיים' : 'חודש'}
+                    {days === 1 ? 'היום' : `${days} ימים`}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* 1. NUTRITION DASHBOARD */}
-            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm">
-              <div className="flex justify-between items-center mb-3 border-b border-slate-850 pb-2">
-                <h3 className="text-sm font-black text-blue-300">🍼 דוח תזונה יומי (הוצע מול נצרך)</h3>
-                <span className="text-[10px] text-slate-500 font-bold">מבוסס בקבוקים</span>
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-blue-300">🍼 יומן תזונה מפורט</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, nutrition: !prev.nutrition }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.nutrition ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
+                </div>
+                <span className="text-[11px] text-blue-400 font-extrabold">🍼 בקבוקים: {todayBottlesCount} | 🤱 הנקות: {todayBreastCount}</span>
               </div>
 
-              {nutritionStats.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתונים להצגת גרף בקבוקים</p>
-              ) : (
-                <div className="space-y-4">
-                  {/* Custom horizontal delta graph */}
-                  <div className="space-y-3">
-                    {nutritionStats.map((stat, idx) => {
-                      const offered = stat.offered || 0;
-                      const consumed = stat.consumed || 0;
-                      const delta = Math.max(0, offered - consumed);
-                      const pct = offered > 0 ? Math.round((consumed / offered) * 100) : 0;
-                      
-                      return (
-                        <div key={idx} className="bg-slate-950/50 p-2.5 rounded-xl border border-slate-850">
-                          <div className="flex justify-between items-center text-xs mb-1">
-                            <span className="font-extrabold text-slate-300">{stat.date}</span>
-                            <span className="text-[11px] font-bold">
-                              נצרך: <b className="text-blue-400">{consumed}מ״ל</b> מתוך {offered}מ״ל ({pct}%)
-                            </span>
-                          </div>
+              {!expandedDashboards.nutrition ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3.5">
+                  {(() => {
+                    const daysData = getFeedingDashboardData();
+                    let totalMl = 0;
+                    let breastCount = 0;
+                    let breastDuration = 0;
+                    let bottleCount = 0;
+                    let totalEvents = 0;
 
-                          <div className="relative w-full h-3 bg-slate-800 rounded-full overflow-hidden flex">
-                            {offered > 0 ? (
-                              <>
-                                <div 
-                                  className="h-full bg-blue-500" 
-                                  style={{ width: `${pct}%` }} 
-                                />
-                                <div 
-                                  className="h-full bg-rose-500/80" 
-                                  style={{ width: `${100 - pct}%` }} 
-                                />
-                              </>
+                    daysData.forEach(day => {
+                      day.dayEvents.forEach(e => {
+                        totalEvents++;
+                        if (e.nutrition) {
+                          if (e.nutrition.feedType === 'BREAST') {
+                            breastCount++;
+                            breastDuration += e.nutrition.durationMinutes || 15;
+                          } else {
+                            bottleCount++;
+                            totalMl += e.nutrition.amountConsumedMl || 0;
+                          }
+                        }
+                      });
+                    });
+
+                    const avgFeedsPerDay = (totalEvents / Math.max(1, dashboardDays)).toFixed(1);
+                    const breastPct = totalEvents > 0 ? Math.round((breastCount / totalEvents) * 100) : 0;
+                    const bottlePct = totalEvents > 0 ? Math.round((bottleCount / totalEvents) * 100) : 0;
+                    const latest = events.find(e => e.eventType === 'NUTRITION');
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div className="bg-blue-950/20 border border-blue-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">סה״כ בקבוק</span>
+                            <span className="text-sm font-black text-blue-300">{totalMl} <span className="text-[10px]">מ״ל</span></span>
+                          </div>
+                          <div className="bg-sky-950/20 border border-sky-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">סה״כ הנקות</span>
+                            <span className="text-sm font-black text-sky-300">{breastCount} <span className="text-[10px]">({breastDuration} ד׳)</span></span>
+                          </div>
+                          <div className="bg-indigo-950/20 border border-indigo-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">ממוצע יומי</span>
+                            <span className="text-sm font-black text-indigo-300">{avgFeedsPerDay} <span className="text-[10px]">ארוחות</span></span>
+                          </div>
+                        </div>
+
+                        {totalEvents > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[9px] font-extrabold text-slate-400 px-1">
+                              <span>הנקה ישירה ({breastPct}%)</span>
+                              <span>האכלת בקבוק ({bottlePct}%)</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                              {breastPct > 0 && <div className="bg-sky-500 h-full transition-all" style={{ width: `${breastPct}%` }} />}
+                              {bottlePct > 0 && <div className="bg-blue-500 h-full transition-all" style={{ width: `${bottlePct}%` }} />}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">אחרון: </span>
+                            {latest ? (
+                              <span className="text-blue-200 font-extrabold">
+                                {latest.nutrition?.feedType === 'BREAST' ? 'הנקה 🤱' : 'בקבוק 🍼'} • {
+                                  latest.nutrition?.feedType === 'BREAST' 
+                                    ? `${latest.nutrition.durationMinutes || 15} דק׳` 
+                                    : `${latest.nutrition?.amountConsumedMl || 0} מ״ל`
+                                } ({new Date(latest.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})
+                              </span>
                             ) : (
-                              <div className="h-full bg-sky-600/40 w-full text-center text-[9px] text-slate-400">הנקות בלבד היום</div>
+                              <span className="text-slate-500">אין נתונים</span>
                             )}
                           </div>
-                          
-                          {offered > 0 && delta > 0 && (
-                            <div className="flex justify-between text-[9px] text-slate-400 mt-1">
-                              <span>הנקות ביום זה: {stat.breastCount || 0}</span>
-                              <span className="text-rose-400 font-bold">פחת פליטות / חלב שהושאר: {delta} מ״ל</span>
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, nutrition: true }))}
+                            className="text-[10px] text-blue-300 hover:text-blue-100 font-black cursor-pointer bg-blue-950/30 px-2 py-1 rounded-lg border border-blue-900/30 transition-all"
+                          >
+                            גרף ופרטים 📊
+                          </button>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })()}
                 </div>
+              ) : (
+                <>
+                  {getFeedingDashboardData().length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני תזונה להצגה</p>
+                  ) : (
+                    <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                      {getFeedingDashboardData().map((group, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <div className="text-[10px] font-black text-slate-400 bg-slate-950/40 px-2.5 py-1 rounded-lg inline-block">
+                            {group.dateStr}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {group.dayEvents.map((e: BabyEvent) => {
+                              const feedType = e.nutrition?.feedType || 'BOTTLE';
+                              const timeStr = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+                              
+                              let bgTheme = 'bg-blue-950/20 border-blue-900/40 text-blue-200';
+                              let icon = '🍼';
+                              let title = 'בקבוק חלב';
+                              let details = '';
+
+                              if (feedType === 'BREAST') {
+                                bgTheme = 'bg-sky-950/20 border-sky-900/40 text-sky-200';
+                                icon = '🤱';
+                                title = 'הנקה ישירה';
+                                details = `צד: ${
+                                  e.nutrition?.breastSide === 'LEFT' ? 'שמאל ⬅️' : e.nutrition?.breastSide === 'RIGHT' ? 'ימין ➡️' : 'דו-צדדי 🔄'
+                                } • ${e.nutrition?.durationMinutes || 15} דק׳`;
+                              } else {
+                                const isFormula = e.nutrition?.bottleLiquidType === 'FORMULA';
+                                title = isFormula ? 'פורמולה / תמ״ל' : 'חלב אם שאוב';
+                                details = `נצרך: ${e.nutrition?.amountConsumedMl || 0} מ״ל • הוצע: ${e.nutrition?.amountOfferedMl || 0} מ״ל`;
+                              }
+
+                              // Spit up metadata
+                              const spitUpValue = e.nutrition?.spitUp;
+                              let spitUpBadge = null;
+                              if (spitUpValue && spitUpValue !== 'NONE') {
+                                const isHeavy = spitUpValue === 'HEAVY_VOMIT';
+                                spitUpBadge = (
+                                  <div className="flex items-center gap-1.5 mt-1.5 text-[9px] text-rose-400 font-bold">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                    <span>{isHeavy ? 'הקאה ⚠️' : 'פליטה קלה'}</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div key={e.id} onClick={() => openEditSheet(e)} className={`p-3 rounded-2xl border ${bgTheme} flex flex-col justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all`}>
+                                  <div className="flex items-start justify-between">
+                                    <span className="text-lg">{icon}</span>
+                                    <span className="text-[10px] font-extrabold text-slate-400">{timeStr}</span>
+                                  </div>
+                                  <div className="mt-1.5 text-right">
+                                    <h4 className="text-xs font-black text-slate-100">{title}</h4>
+                                    {details && (
+                                      <p className="text-[10px] text-slate-400 mt-0.5 font-bold leading-tight">
+                                        {details}
+                                      </p>
+                                    )}
+                                    {spitUpBadge}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </section>
 
             {/* 2. SLEEP DASHBOARD */}
-            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm">
-              <div className="flex justify-between items-center mb-3 border-b border-slate-850 pb-2">
-                <h3 className="text-sm font-black text-indigo-300">💤 שינה יומית (שעות סה״ך)</h3>
-                <span className="text-[10px] text-indigo-400 font-bold">שעות מחושבות</span>
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-indigo-300">💤 שינה יומית</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, sleep: !prev.sleep }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.sleep ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
+                </div>
+                <span className="text-[11px] text-indigo-400 font-extrabold">💤 {todaySleepStats.hrs}ש׳ {todaySleepStats.mins}ד׳ ({todaySleepStats.count} פעמים)</span>
               </div>
 
-              {sleepStats.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני שינה</p>
-              ) : (
-                <div className="space-y-3">
-                  {sleepStats.map((stat, idx) => {
-                    const hrs = (stat.totalMinutes / 60).toFixed(1);
-                    const pct = Math.min(100, Math.round((stat.totalMinutes / (16 * 60)) * 100)); // Target 16 hours for baby
-                    
+              {!expandedDashboards.sleep ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3.5">
+                  {(() => {
+                    const daysData = getSleepTimelineData();
+                    let totalMinutes = 0;
+                    let sleepCount = 0;
+                    const locationCounts: { [key: string]: number } = { CRIB: 0, HANDS: 0, CARRIER: 0, STROLLER: 0 };
+
+                    daysData.forEach(day => {
+                      day.items.forEach(item => {
+                        if (item.type === 'SLEEP') {
+                          sleepCount++;
+                          totalMinutes += item.duration;
+                          const loc = item.location || 'CRIB';
+                          locationCounts[loc] = (locationCounts[loc] || 0) + 1;
+                        }
+                      });
+                    });
+
+                    const totalHrs = Math.floor(totalMinutes / 60);
+                    const totalMins = totalMinutes % 60;
+                    const avgHrsPerDay = ((totalMinutes / 60) / Math.max(1, dashboardDays)).toFixed(1);
+
+                    const locationColors: { [key: string]: string } = {
+                      CRIB: 'bg-indigo-500',
+                      HANDS: 'bg-amber-500',
+                      CARRIER: 'bg-teal-500',
+                      STROLLER: 'bg-rose-500'
+                    };
+
+                    const locationLabels: { [key: string]: string } = {
+                      CRIB: 'עריסה',
+                      HANDS: 'ידיים',
+                      CARRIER: 'מנשא',
+                      STROLLER: 'עגלה'
+                    };
+
                     return (
-                      <div key={idx} className="flex items-center gap-3">
-                        <span className="w-16 text-xs text-slate-300 font-bold truncate">{stat.date}</span>
-                        <div className="flex-1 bg-slate-950/40 h-5 rounded-lg border border-slate-850 overflow-hidden relative flex items-center pr-2">
-                          <div 
-                            className="h-full bg-indigo-600/70 rounded-l transition-all duration-300"
-                            style={{ width: `${pct}%` }}
-                          />
-                          <span className="absolute left-2 text-[10px] font-bold text-indigo-300">
-                            {hrs} שעות ({stat.sessionCount} פעמים)
-                          </span>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div className="bg-indigo-950/20 border border-indigo-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">סה״כ שינה</span>
+                            <span className="text-sm font-black text-indigo-300">{totalHrs}ש׳ {totalMins}ד׳</span>
+                          </div>
+                          <div className="bg-emerald-950/20 border border-emerald-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">ממוצע ליום</span>
+                            <span className="text-sm font-black text-emerald-300">{avgHrsPerDay} <span className="text-[10px]">שעות</span></span>
+                          </div>
+                          <div className="bg-violet-950/20 border border-violet-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">מס׳ תנומות</span>
+                            <span className="text-sm font-black text-violet-300">{sleepCount} <span className="text-[10px]">פעמים</span></span>
+                          </div>
+                        </div>
+
+                        {sleepCount > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold text-slate-400 block px-1">מיקומי שינה פופולריים:</span>
+                            <div className="flex gap-1.5 flex-wrap">
+                              {Object.keys(locationCounts).map(loc => {
+                                const count = locationCounts[loc];
+                                if (count === 0) return null;
+                                return (
+                                  <span key={loc} className="inline-flex items-center gap-1 bg-slate-900 border border-slate-800 text-[9px] font-extrabold text-slate-300 px-2 py-0.5 rounded-full">
+                                    <span className={`w-1.5 h-1.5 rounded-full ${locationColors[loc] || 'bg-slate-500'}`} />
+                                    {locationLabels[loc]} ({count})
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">סטטוס: </span>
+                            {openSleepSession ? (
+                              <span className="text-emerald-400 font-black animate-pulse">
+                                ישן כעת 💤 (התחיל ב-{new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })})
+                              </span>
+                            ) : (() => {
+                              const latest = events.find(e => e.eventType === 'SLEEP' && e.sleep?.endAt);
+                              if (!latest) return <span className="text-slate-500">אין נתונים קודמים</span>;
+                              const end = new Date(latest.sleep!.endAt!);
+                              return (
+                                <span className="text-indigo-200 font-extrabold">
+                                  קם ב-{end.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })} ({latest.sleep?.durationMinutes || 0} דק׳)
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, sleep: true }))}
+                            className="text-[10px] text-indigo-300 hover:text-indigo-100 font-black cursor-pointer bg-indigo-950/30 px-2 py-1 rounded-lg border border-indigo-900/30 transition-all"
+                          >
+                            גרפים ורצף 📊
+                          </button>
                         </div>
                       </div>
                     );
-                  })}
+                  })()}
                 </div>
+              ) : (
+                <>
+                  {sleepStats.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני שינה</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {sleepStats.map((stat, idx) => {
+                        const hrs = (stat.totalMinutes / 60).toFixed(1);
+                        const pct = Math.min(100, Math.round((stat.totalMinutes / (16 * 60)) * 100)); // Target 16 hours for baby
+                        
+                        return (
+                          <div key={idx} className="flex items-center gap-3">
+                            <span className="w-16 text-xs text-slate-300 font-bold truncate">{stat.date}</span>
+                            <div className="flex-1 bg-slate-950/40 h-5 rounded-lg border border-slate-850 overflow-hidden relative flex items-center pr-2">
+                              <div 
+                                className="h-full bg-indigo-600/70 rounded-l transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                              />
+                              <span className="absolute left-2 text-[10px] font-bold text-indigo-300">
+                                {hrs} שעות ({stat.sessionCount} פעמים)
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Live sleep sequential chart (Lower line spots showing spots and minutes of sleep + awake intervals) */}
+                  <div className="border-t border-slate-850 pt-3 mt-3">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-xs font-black text-violet-300">📊 תרשים רצף שינה ועירות (רצף ורווחים)</h4>
+                      <span className="text-[9px] text-slate-500 font-bold">מציג דפוסי עירות בין שינות</span>
+                    </div>
+
+                    {getSleepTimelineData().length === 0 ? (
+                      <p className="text-[10px] text-slate-500 text-center py-4">אין נתונים להצגת רצף שינה</p>
+                    ) : (
+                      <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                        {getSleepTimelineData().map((dayGroup, idx) => (
+                          <div key={idx} className="bg-slate-950/30 p-3 rounded-2xl border border-slate-850/80 space-y-2.5">
+                            <div className="text-[10px] font-extrabold text-slate-300">
+                              {dayGroup.dateStr}
+                            </div>
+                            
+                            {/* Horizontal Timeline Container */}
+                            <div className="flex flex-col gap-1.5 relative">
+                              {dayGroup.items.map((item, itemIdx) => {
+                                if (item.type === 'SLEEP') {
+                                  const startStr = item.start.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+                                  const endStr = item.event.sleep?.endAt 
+                                    ? item.end.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                    : 'ישן כעת ⏰';
+
+                                  return (
+                                    <div 
+                                      key={itemIdx} 
+                                      onClick={() => openEditSheet(item.event)}
+                                      className="bg-gradient-to-r from-indigo-950/80 to-indigo-900/60 border border-indigo-500/30 p-2.5 rounded-xl flex items-center justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-base">💤</span>
+                                        <div className="text-right">
+                                          <span className="text-xs font-black text-indigo-200">
+                                            שינה • {item.duration} דקות
+                                          </span>
+                                          <span className="text-[9px] text-indigo-400 block font-bold leading-none mt-0.5">
+                                            מיקום: {item.location === 'CRIB' ? 'עריסה 🛏️' : item.location === 'HANDS' ? 'על הידיים 🤱' : item.location === 'STROLLER' ? 'עגלה 🛒' : 'מנשא 🎒'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="text-left">
+                                        <span className="text-[10px] font-mono font-extrabold text-indigo-300 bg-indigo-950/50 px-2 py-1 rounded-md border border-indigo-500/20">
+                                          {startStr} - {endStr}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                } else {
+                                  // AWAKE GAP
+                                  const gapMin = item.gapMinutes;
+                                  const gapHrs = Math.floor(gapMin / 60);
+                                  const gapMins = gapMin % 60;
+                                  const gapStr = gapHrs > 0 ? `${gapHrs} ש׳ ${gapMins} דק׳` : `${gapMins} דק׳`;
+
+                                  return (
+                                    <div 
+                                      key={itemIdx} 
+                                      className="flex items-center justify-center gap-2 py-1.5 my-0.5 px-3 border border-dashed border-slate-800 rounded-xl bg-slate-900/30 text-[10px] text-slate-400 font-bold"
+                                    >
+                                      <span className="text-emerald-400 animate-pulse">🌱</span>
+                                      <span>חלון עירות בין שינות:</span>
+                                      <span className="font-mono text-emerald-300 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-500/10">
+                                        {gapStr}
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </section>
 
             {/* 3. DIAPER PATTERN DASHBOARD */}
-            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm">
-              <div className="flex justify-between items-center mb-3 border-b border-slate-850 pb-2">
-                <h3 className="text-sm font-black text-teal-300">👶 שכיחות חיתולים (שתן/צואה)</h3>
-                <span className="text-[10px] text-teal-400 font-bold">זיהוי דפוסי עיכול</span>
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-teal-300">🧷 יומן חיתולים</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, diaper: !prev.diaper }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.diaper ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
+                </div>
+                <span className="text-[11px] text-teal-400 font-extrabold">💦 {todayPeeCount} | 💩 {todayPooCount} | 💦💩 {todayBothCount}</span>
               </div>
 
-              {diaperStats.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני חיתולים</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {diaperStats.map((stat, idx) => (
-                    <div key={idx} className="bg-slate-950/40 border border-slate-850/80 p-3 rounded-2xl">
-                      <div className="text-xs font-bold text-slate-300 border-b border-slate-850 pb-1 mb-2">
-                        {stat.date}
-                      </div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-sky-300">💦 שתן</span>
-                        <span className="font-extrabold">{stat.pee + stat.both} חיתולים</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-amber-400">💩 צואה</span>
-                        <span className="font-extrabold">{stat.poo + stat.both} חיתולים</span>
-                      </div>
+              {!expandedDashboards.diaper ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3.5">
+                  {(() => {
+                    const daysData = getDiaperDashboardData();
+                    let peeCount = 0;
+                    let pooCount = 0;
+                    let bothCount = 0;
+                    let totalCount = 0;
 
-                      {/* Poo color indicator highlights */}
-                      {stat.pooColors.length > 0 && (
-                        <div className="mt-2 pt-1.5 border-t border-slate-850/60 flex items-center gap-1.5">
-                          <span className="text-[9px] text-slate-500">צבעי צואה:</span>
-                          <div className="flex gap-1">
-                            {stat.pooColors.map((col: string, i: number) => {
-                              const colorBg = col === 'YELLOW_MUSTARD' ? 'bg-amber-400' : col === 'GREEN' ? 'bg-green-650' : 'bg-yellow-800';
-                              return <span key={i} className={`w-2.5 h-2.5 rounded-full ${colorBg}`} title={col} />;
+                    daysData.forEach(day => {
+                      day.dayEvents.forEach(e => {
+                        if (e.diaper) {
+                          totalCount++;
+                          const type = e.diaper.contains;
+                          if (type === 'PEE') peeCount++;
+                          else if (type === 'POO') pooCount++;
+                          else if (type === 'BOTH') bothCount++;
+                        }
+                      });
+                    });
+
+                    const peePct = totalCount > 0 ? Math.round((peeCount / totalCount) * 100) : 0;
+                    const pooPct = totalCount > 0 ? Math.round((pooCount / totalCount) * 100) : 0;
+                    const bothPct = totalCount > 0 ? Math.round((bothCount / totalCount) * 100) : 0;
+
+                    const avgDiapersPerDay = (totalCount / Math.max(1, dashboardDays)).toFixed(1);
+                    const latest = events.find(e => e.eventType === 'DIAPER');
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div className="bg-cyan-950/20 border border-cyan-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">💦 רק פיפי</span>
+                            <span className="text-sm font-black text-cyan-300">{peeCount}</span>
+                          </div>
+                          <div className="bg-amber-950/20 border border-amber-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">💩 רק קקי</span>
+                            <span className="text-sm font-black text-amber-300">{pooCount}</span>
+                          </div>
+                          <div className="bg-fuchsia-950/20 border border-fuchsia-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">💦💩 שניהם</span>
+                            <span className="text-sm font-black text-fuchsia-300">{bothCount}</span>
+                          </div>
+                          <div className="bg-teal-950/20 border border-teal-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">ממוצע יומי</span>
+                            <span className="text-sm font-black text-teal-300">{avgDiapersPerDay}</span>
+                          </div>
+                        </div>
+
+                        {totalCount > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[9px] font-extrabold text-slate-400 px-1">
+                              <span>💦 פיפי ({peePct}%)</span>
+                              <span>💦💩 שניהם ({bothPct}%)</span>
+                              <span>💩 קקי ({pooPct}%)</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                              {peePct > 0 && <div className="bg-cyan-400 h-full transition-all" style={{ width: `${peePct}%` }} />}
+                              {bothPct > 0 && <div className="bg-fuchsia-500 h-full transition-all" style={{ width: `${bothPct}%` }} />}
+                              {pooPct > 0 && <div className="bg-amber-500 h-full transition-all" style={{ width: `${pooPct}%` }} />}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">אחרון: </span>
+                            {latest ? (
+                              <span className="text-teal-200 font-extrabold">
+                                {latest.diaper?.contains === 'PEE' ? '💦 פיפי' : latest.diaper?.contains === 'POO' ? '💩 קקי' : '💦💩 פיפי וקקי'} • {
+                                  new Date(latest.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                }
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">אין נתונים</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, diaper: true }))}
+                            className="text-[10px] text-teal-300 hover:text-teal-100 font-black cursor-pointer bg-teal-950/30 px-2 py-1 rounded-lg border border-teal-900/30 transition-all"
+                          >
+                            גרף ופרטים 📊
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <>
+                  {getDiaperDashboardData().length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני חיתולים להצגה</p>
+                  ) : (
+                    <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                      {getDiaperDashboardData().map((group, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <div className="text-[10px] font-black text-slate-400 bg-slate-950/40 px-2.5 py-1 rounded-lg inline-block">
+                            {group.dateStr}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {group.dayEvents.map((e: BabyEvent) => {
+                              const contains = e.diaper?.contains || 'PEE';
+                              const timeStr = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+                              
+                              // Styling attributes based on diaper content
+                              let bgTheme = 'bg-sky-950/20 border-sky-900/40 text-sky-200';
+                              let icon = '💦';
+                              let title = 'שתן בלבד';
+                              let contentDetail = '';
+
+                              if (contains === 'POO') {
+                                bgTheme = 'bg-amber-950/20 border-amber-900/40 text-amber-200';
+                                icon = '💩';
+                                title = 'צואה בלבד';
+                              } else if (contains === 'BOTH') {
+                                bgTheme = 'bg-teal-950/30 border-teal-900/40 text-teal-200';
+                                icon = '💦💩';
+                                title = 'שתן וצואה';
+                              }
+
+                              // Extra metadata strings
+                              const metaParts: string[] = [];
+                              if (contains !== 'POO' && e.diaper?.peeVolume) {
+                                metaParts.push(e.diaper.peeVolume === 'LIGHT' ? 'קל' : 'כבד מאוד 💦');
+                              }
+                              if (contains !== 'PEE' && e.diaper?.pooAmount) {
+                                const sizeText = e.diaper.pooAmount === 'SMALL' ? 'קטן' : e.diaper.pooAmount === 'MEDIUM' ? 'בינוני' : 'גלישה ⚠️';
+                                metaParts.push(sizeText);
+                              }
+                              contentDetail = metaParts.join(' • ');
+
+                              // Color display for poo
+                              const pooColorValue = e.diaper?.pooColor;
+                              let pooColorDot = null;
+                              if (contains !== 'PEE' && pooColorValue) {
+                                const colorDotBg = pooColorValue === 'YELLOW_MUSTARD' ? 'bg-amber-400' : pooColorValue === 'GREEN' ? 'bg-green-600' : 'bg-amber-850';
+                                const colorText = pooColorValue === 'YELLOW_MUSTARD' ? 'צהוב חרדל' : pooColorValue === 'GREEN' ? 'ירוק' : 'חום';
+                                pooColorDot = (
+                                  <div className="flex items-center gap-1.5 mt-1.5 text-[9px] text-slate-400 font-bold">
+                                    <span className={`w-2.5 h-2.5 rounded-full ${colorDotBg} border border-white/15`} />
+                                    <span>{colorText}</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div key={e.id} onClick={() => openEditSheet(e)} className={`p-3 rounded-2xl border ${bgTheme} flex flex-col justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all`}>
+                                  <div className="flex items-start justify-between">
+                                    <span className="text-lg">{icon}</span>
+                                    <span className="text-[10px] font-extrabold text-slate-400">{timeStr}</span>
+                                  </div>
+                                  <div className="mt-1.5 text-right">
+                                    <h4 className="text-xs font-black text-slate-100">{title}</h4>
+                                    {contentDetail && (
+                                      <p className="text-[10px] text-slate-400 mt-0.5 font-bold leading-tight">
+                                        {contentDetail}
+                                      </p>
+                                    )}
+                                    {pooColorDot}
+                                  </div>
+                                </div>
+                              );
                             })}
                           </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* 3.5. BREAST MILK PUMPING DASHBOARD */}
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-fuchsia-300">🍼🤱 יומן שאיבות חלב</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, pumping: !prev.pumping }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.pumping ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
                 </div>
+                <span className="text-[11px] text-fuchsia-400 font-extrabold">סה״ך שאיבות היום: {todayPumpingTotal} מ״ל</span>
+              </div>
+
+              {!expandedDashboards.pumping ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3.5">
+                  {(() => {
+                    const daysData = getPumpingDashboardData();
+                    let leftTotal = 0;
+                    let rightTotal = 0;
+                    let sessionCount = 0;
+
+                    daysData.forEach(day => {
+                      day.dayEvents.forEach(e => {
+                        if (e.pumping) {
+                          sessionCount++;
+                          leftTotal += e.pumping.leftAmountMl || 0;
+                          rightTotal += e.pumping.rightAmountMl || 0;
+                        }
+                      });
+                    });
+
+                    const grandTotal = leftTotal + rightTotal;
+                    const avgPumpedPerDay = Math.round(grandTotal / Math.max(1, dashboardDays));
+
+                    const leftPct = grandTotal > 0 ? Math.round((leftTotal / grandTotal) * 100) : 50;
+                    const rightPct = grandTotal > 0 ? Math.round((rightTotal / grandTotal) * 100) : 50;
+
+                    const latest = events.find(e => e.eventType === 'PUMPING');
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div className="bg-fuchsia-950/20 border border-fuchsia-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">סה״כ נשאב</span>
+                            <span className="text-sm font-black text-fuchsia-300">{grandTotal} <span className="text-[10px]">מ״ל</span></span>
+                          </div>
+                          <div className="bg-purple-950/20 border border-purple-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">ממוצע ליום</span>
+                            <span className="text-sm font-black text-purple-300">{avgPumpedPerDay} <span className="text-[10px]">מ״ל</span></span>
+                          </div>
+                          <div className="bg-pink-950/20 border border-pink-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">מס׳ שאיבות</span>
+                            <span className="text-sm font-black text-pink-300">{sessionCount} <span className="text-[10px]">פעמים</span></span>
+                          </div>
+                        </div>
+
+                        {grandTotal > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[9px] font-extrabold text-slate-400 px-1">
+                              <span>⬅️ שמאל: {leftTotal} מ״ל ({leftPct}%)</span>
+                              <span>ימין: {rightTotal} מ״ל ({rightPct}%) ➡️</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                              <div className="bg-fuchsia-400 h-full transition-all" style={{ width: `${leftPct}%` }} />
+                              <div className="bg-purple-500 h-full transition-all" style={{ width: `${rightPct}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">אחרון: </span>
+                            {latest ? (
+                              <span className="text-fuchsia-200 font-extrabold">
+                                שמאל: {latest.pumping?.leftAmountMl || 0} מ״ל | ימין: {latest.pumping?.rightAmountMl || 0} מ״ל ({
+                                  new Date(latest.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                })
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">אין נתונים</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, pumping: true }))}
+                            className="text-[10px] text-fuchsia-300 hover:text-fuchsia-100 font-black cursor-pointer bg-fuchsia-950/30 px-2 py-1 rounded-lg border border-fuchsia-900/30 transition-all"
+                          >
+                            גרף ופרטים 📊
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <>
+                  {getPumpingDashboardData().length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני שאיבות להצגה</p>
+                  ) : (
+                    <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                      {getPumpingDashboardData().map((group, idx) => {
+                        const groupTotalLeft = group.dayEvents.reduce((acc: number, e: BabyEvent) => acc + (e.pumping?.leftAmountMl || 0), 0);
+                        const groupTotalRight = group.dayEvents.reduce((acc: number, e: BabyEvent) => acc + (e.pumping?.rightAmountMl || 0), 0);
+                        const groupTotal = groupTotalLeft + groupTotalRight;
+
+                        return (
+                          <div key={idx} className="space-y-2">
+                            <div className="flex justify-between items-center bg-slate-950/40 px-2.5 py-1.5 rounded-lg">
+                              <span className="text-[10px] font-black text-slate-400">{group.dateStr}</span>
+                              <span className="text-[10px] font-black text-fuchsia-400">יומי: {groupTotal} מ״ל (שמאל: {groupTotalLeft} | ימין: {groupTotalRight})</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {group.dayEvents.map((e: BabyEvent) => {
+                                const left = e.pumping?.leftAmountMl || 0;
+                                const right = e.pumping?.rightAmountMl || 0;
+                                const total = left + right;
+                                const timeStr = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+
+                                return (
+                                  <div key={e.id} onClick={() => openEditSheet(e)} className="p-3 rounded-2xl border bg-fuchsia-950/20 border-fuchsia-900/30 text-fuchsia-200 flex flex-col justify-between shadow-sm cursor-pointer hover:bg-fuchsia-950/35 transition-all">
+                                    <div className="flex items-start justify-between">
+                                      <span className="text-sm">🍼</span>
+                                      <span className="text-[10px] font-extrabold text-slate-400">{timeStr}</span>
+                                    </div>
+                                    <div className="mt-1.5 text-right">
+                                      <h4 className="text-xs font-black text-slate-100">שאיבה</h4>
+                                      <p className="text-[11px] text-fuchsia-300 mt-1 font-extrabold leading-tight">
+                                        שמאל: {left} מ״ל • ימין: {right} מ״ל
+                                      </p>
+                                      <span className="text-[9px] bg-fuchsia-950 px-2 py-0.5 rounded-full inline-block mt-1 font-black text-fuchsia-100">
+                                        סך הכל: {total} מ״ל
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* 3.8. VOMITING & SPIT-UP DASHBOARD */}
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-rose-300">🤮 יומן פליטות והקאות</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, vomiting: !prev.vomiting }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.vomiting ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
+                </div>
+                <span className="text-[11px] text-rose-400 font-extrabold">פליטות/הקאות שנרשמו: {getVomitingDashboardData().reduce((acc, g) => acc + g.dayEvents.length, 0)}</span>
+              </div>
+
+              {!expandedDashboards.vomiting ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3.5">
+                  {(() => {
+                    const daysData = getVomitingDashboardData();
+                    let smallCount = 0;
+                    let mediumCount = 0;
+                    let largeCount = 0;
+                    let totalCount = 0;
+
+                    daysData.forEach(day => {
+                      day.dayEvents.forEach(e => {
+                        totalCount++;
+                        const size = e.vomiting?.size || 'MEDIUM';
+                        if (size === 'SMALL') smallCount++;
+                        else if (size === 'MEDIUM') mediumCount++;
+                        else if (size === 'LARGE') largeCount++;
+                      });
+                    });
+
+                    const smallPct = totalCount > 0 ? Math.round((smallCount / totalCount) * 100) : 0;
+                    const mediumPct = totalCount > 0 ? Math.round((mediumCount / totalCount) * 100) : 0;
+                    const largePct = totalCount > 0 ? Math.round((largeCount / totalCount) * 100) : 0;
+
+                    const avgPerDay = (totalCount / Math.max(1, dashboardDays)).toFixed(1);
+                    const latest = events.find(e => e.eventType === 'VOMITING');
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div className="bg-rose-950/10 border border-rose-900/10 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">💧 קלה</span>
+                            <span className="text-sm font-black text-rose-300">{smallCount}</span>
+                          </div>
+                          <div className="bg-rose-950/20 border border-rose-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">💦 בינונית</span>
+                            <span className="text-sm font-black text-rose-300">{mediumCount}</span>
+                          </div>
+                          <div className="bg-red-950/30 border border-red-900/30 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">⚠️ הקאה</span>
+                            <span className="text-sm font-black text-red-300">{largeCount}</span>
+                          </div>
+                          <div className="bg-slate-950/20 border border-slate-900/20 p-2 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 block mb-0.5">ממוצע יומי</span>
+                            <span className="text-sm font-black text-slate-300">{avgPerDay}</span>
+                          </div>
+                        </div>
+
+                        {totalCount > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[9px] font-extrabold text-slate-400 px-1">
+                              <span>💧 קלה ({smallPct}%)</span>
+                              <span>💦 בינונית ({mediumPct}%)</span>
+                              <span>⚠️ הקאה ({largePct}%)</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                              {smallPct > 0 && <div className="bg-rose-300 h-full transition-all" style={{ width: `${smallPct}%` }} />}
+                              {mediumPct > 0 && <div className="bg-rose-500 h-full transition-all" style={{ width: `${mediumPct}%` }} />}
+                              {largePct > 0 && <div className="bg-red-600 h-full transition-all" style={{ width: `${largePct}%` }} />}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">אחרון: </span>
+                            {latest ? (
+                              <span className="text-rose-200 font-extrabold">
+                                {latest.vomiting?.size === 'SMALL' ? 'פליטה קלה 💧' : latest.vomiting?.size === 'MEDIUM' ? 'פליטה בינונית 💦' : 'הקאה גדולה ⚠️'} • {
+                                  new Date(latest.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                                }
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">אין פליטות/הקאות</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, vomiting: true }))}
+                            className="text-[10px] text-rose-300 hover:text-rose-100 font-black cursor-pointer bg-rose-950/30 px-2 py-1 rounded-lg border border-rose-900/30 transition-all"
+                          >
+                            פרטים 📊
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <>
+                  {getVomitingDashboardData().length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">לא נרשמו פליטות או הקאות בטווח הזמן שנבחר</p>
+                  ) : (
+                    <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                      {getVomitingDashboardData().map((group, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <div className="flex justify-between items-center bg-slate-950/40 px-2.5 py-1.5 rounded-lg">
+                            <span className="text-[10px] font-black text-slate-400">{group.dateStr}</span>
+                            <span className="text-[10px] font-black text-rose-400">כמות: {group.dayEvents.length}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {group.dayEvents.map((e: BabyEvent) => {
+                              const size = e.vomiting?.size || 'MEDIUM';
+                              const sizeLabel = size === 'SMALL' ? 'פליטה קלה 💧' : size === 'MEDIUM' ? 'פליטה בינונית 💦' : 'הקאה גדולה ⚠️';
+                              const timeStr = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+                              const bgTheme = size === 'LARGE' ? 'bg-rose-950/20 border-rose-900/40 text-rose-200' : 'bg-slate-950/20 border-slate-850 text-slate-300';
+
+                              return (
+                                <div key={e.id} onClick={() => openEditSheet(e)} className={`p-3 rounded-2xl border ${bgTheme} flex flex-col justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all`}>
+                                  <div className="flex items-start justify-between">
+                                    <span className="text-sm">🤮</span>
+                                    <span className="text-[10px] font-extrabold text-slate-400">{timeStr}</span>
+                                  </div>
+                                  <div className="mt-1.5 text-right">
+                                    <h4 className="text-xs font-black text-slate-100">{sizeLabel}</h4>
+                                    {e.notes && (
+                                      <p className="text-[10px] text-slate-400 mt-1 italic leading-tight truncate">
+                                        {e.notes}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </section>
 
             {/* 4. WEIGHT TRACKER CLINICAL */}
             <section className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-sm">
-              <div className="flex justify-between items-center mb-3 border-b border-slate-850 pb-2">
-                <h3 className="text-sm font-black text-pink-300">⚖️ מעקב משקל בקליניקה (ק״ג)</h3>
-                <span className="text-[10px] text-slate-400 font-bold">גרף גדילה רפואי</span>
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-pink-300">⚖️ מעקב משקל בקליניקה</h3>
+                  <button 
+                    type="button"
+                    onClick={() => setExpandedDashboards(prev => ({ ...prev, weight: !prev.weight }))}
+                    className="px-2 py-0.5 text-[10px] font-black rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-750 cursor-pointer"
+                  >
+                    {expandedDashboards.weight ? 'צמצם 📁' : 'הרחב 📂'}
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 font-bold">שקילות: {weightStats.length}</span>
               </div>
 
-              {weightStats.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-6">עדיין לא הוזנו שקילות רפואיות</p>
-              ) : (
-                <div className="space-y-3">
-                  {weightStats.map((stat, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-850">
-                      <div className="flex items-center gap-2">
-                        <span className="text-pink-400 font-extrabold">⚖️</span>
-                        <span className="text-xs text-slate-300 font-bold">{stat.date}</span>
-                      </div>
-                      <div className="text-left">
-                        <span className="text-base font-black text-slate-100">{(stat.weightGrams / 1000).toFixed(3)} ק״ג</span>
-                        {stat.percentile && (
-                          <span className="text-[10px] text-slate-400 font-bold mr-1.5 bg-slate-800 px-1.5 py-0.5 rounded">
-                            אחוזון {stat.percentile}%
-                          </span>
+              {!expandedDashboards.weight ? (
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3 mt-3">
+                  {(() => {
+                    const latest = events.find(e => e.eventType === 'WEIGHT' && e.weight);
+                    const earliest = [...events].reverse().find(e => e.eventType === 'WEIGHT' && e.weight);
+
+                    let diffGrams = 0;
+                    if (latest && earliest && latest.id !== earliest.id) {
+                      diffGrams = latest.weight!.weightGrams - earliest.weight!.weightGrams;
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div className="bg-pink-950/20 border border-pink-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">⚖️ משקל אחרון</span>
+                            {latest ? (
+                              <span className="text-sm font-black text-pink-300">{(latest.weight!.weightGrams / 1000).toFixed(3)} <span className="text-[10px]">ק״ג</span></span>
+                            ) : (
+                              <span className="text-xs text-slate-500">אין שקילה</span>
+                            )}
+                          </div>
+                          <div className="bg-emerald-950/20 border border-emerald-900/20 p-2.5 rounded-xl text-center">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-0.5">📈 שינוי מצטבר</span>
+                            <span className={`text-sm font-black ${diffGrams >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {diffGrams >= 0 ? '+' : ''}{(diffGrams / 1000).toFixed(3)} ק״ג
+                            </span>
+                          </div>
+                        </div>
+
+                        {latest?.weight?.percentile && (
+                          <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-xl flex justify-between items-center text-xs">
+                            <span className="text-slate-400 font-bold">אחוזון גדילה נוכחי:</span>
+                            <span className="text-pink-300 font-black">אחוזון {latest.weight.percentile}%</span>
+                          </div>
                         )}
+
+                        <div className="flex justify-between items-center text-right pt-2 border-t border-slate-850/60">
+                          <div className="text-[10px]">
+                            <span className="text-slate-400 font-bold">תאריך שקילה: </span>
+                            {latest ? (
+                              <span className="text-pink-200 font-extrabold">
+                                {new Date(latest.timestamp).toLocaleDateString('he-IL', { weekday: 'short', month: 'numeric', day: 'numeric' })}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">אין נתונים</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDashboards(prev => ({ ...prev, weight: true }))}
+                            className="text-[10px] text-pink-300 hover:text-pink-100 font-black cursor-pointer bg-pink-950/30 px-2 py-1 rounded-lg border border-pink-900/30 transition-all"
+                          >
+                            גרף גדילה 📊
+                          </button>
+                        </div>
                       </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {weightStats.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">עדיין לא הוזנו שקילות רפואיות</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {weightStats.map((stat, idx) => (
+                        <div key={idx} className="flex justify-between items-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-850">
+                          <div className="flex items-center gap-2">
+                            <span className="text-pink-400 font-extrabold">⚖️</span>
+                            <span className="text-xs text-slate-300 font-bold">{stat.date}</span>
+                          </div>
+                          <div className="text-left">
+                            <span className="text-base font-black text-slate-100">{(stat.weightGrams / 1000).toFixed(3)} ק״ג</span>
+                            {stat.percentile && (
+                              <span className="text-[10px] text-slate-400 font-bold mr-1.5 bg-slate-800 px-1.5 py-0.5 rounded">
+                                אחוזון {stat.percentile}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </section>
@@ -1539,6 +3933,65 @@ export default function App() {
               </div>
             </section>
 
+            {/* DATA MANAGEMENT & RESET SECTION */}
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
+              <h3 className="text-base font-black text-rose-400 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-rose-400" />
+                <span>ניהול ואתחול נתוני מערכת</span>
+              </h3>
+              <p className="text-xs text-slate-400 leading-normal">
+                כאן תוכלו לנקות את היסטוריית המערכת - לאתחל מחדש לגמרי או למחוק נתונים ישנים כדי להשאיר את המידע מעודכן בלבד.
+              </p>
+
+              <div className="space-y-4 pt-2">
+                {/* Option 1: Backwards deletion */}
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3">
+                  <span className="text-xs font-black text-slate-200 block">🧹 אפשרות א׳: ניקוי נתונים מתאריך מסוים ואחורה</span>
+                  <p className="text-[11px] text-slate-400 leading-normal">
+                    המערכת תמחק לצמיתות את כל האירועים שהתרחשו בתאריך הנבחר ואחורה. המידע מהתאריך הזה והלאה יישאר ללא שינוי, כך שתתחילו מחדש מאותו היום.
+                  </p>
+                  
+                  <div className="space-y-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">בחר תאריך יעד למחיקה אחורה:</label>
+                      <input 
+                        type="date" 
+                        value={clearCutoffDate}
+                        onChange={(e) => setClearCutoffDate(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
+                      />
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setClearType('cutoff')}
+                      className="w-full bg-rose-950/40 text-rose-400 hover:bg-rose-950/75 border border-rose-900/45 font-bold py-2 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>מחק נתונים מתאריך {clearCutoffDate} ואחורה</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Option 2: Factory reset */}
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3">
+                  <span className="text-xs font-black text-red-400 block">⚠️ אפשרות ב׳: אתחול מחדש מלא (התחלה מאפס)</span>
+                  <p className="text-[11px] text-slate-400 leading-normal">
+                    מוחק לצמיתות את כל האירועים, הארוחות, השינה והנתונים במערכת. פעולה זו אינה הפיכה ותחזיר את האפליקציה למצב נקי לחלוטין.
+                  </p>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setClearType('all')}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-2.5 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>אתחל את כל הנתונים והתחל מאפס</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
           </div>
         )}
 
@@ -1546,23 +3999,29 @@ export default function App() {
 
       {/* BOTTOM MODALS / SHEETS PANEL (ONE-HANDED INPUT OPTIMIZED) */}
       {activeSheet && (
-        <div className="fixed inset-0 bg-black/80 z-40 flex items-end justify-center transition-opacity">
-          <div className="w-full max-w-md bg-slate-900 border-t border-slate-800 rounded-t-[32px] p-5 shadow-2xl max-h-[92vh] overflow-y-auto z-50">
+        <div className="fixed inset-0 bg-black/80 z-40 flex items-center justify-center p-4 transition-opacity">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-[32px] p-5 shadow-2xl max-h-[92vh] overflow-y-auto z-50">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-xl">
                   {activeSheet === 'bottle' ? '🍼' : 
-                   activeSheet === 'diaper' ? '👶' : 
+                   activeSheet === 'diaper' ? '🧷' : 
                    activeSheet === 'activity' ? '🎨' : 
-                   activeSheet === 'weight' ? '⚖️' : '✏️'}
+                   activeSheet === 'weight' ? '⚖️' : 
+                   activeSheet === 'pumping' ? '🍼🤱' : 
+                   activeSheet === 'vomiting' ? '🤮' : 
+                   activeSheet === 'sleep' ? '💤' : '✏️'}
                 </span>
                 <h3 className="text-base font-black text-slate-100">
                   {activeSheet === 'bottle' ? 'תיעוד ארוחה / הנקה' : 
                    activeSheet === 'diaper' ? 'תיעוד החלפת חיתול' : 
                    activeSheet === 'activity' ? 'תיעוד פעילות' : 
-                   activeSheet === 'weight' ? 'שקילת משקל רפואי' : 'עריכת אירוע קיים'}
+                   activeSheet === 'weight' ? 'שקילת משקל רפואי' : 
+                   activeSheet === 'pumping' ? 'שאיבת חלב מונעת' : 
+                   activeSheet === 'vomiting' ? 'תיעוד פליטה / הקאה' : 
+                   activeSheet === 'sleep' ? 'תיעוד שינת תינוק' : 'עריכת אירוע קיים'}
                 </h3>
               </div>
               <button 
@@ -1581,6 +4040,25 @@ export default function App() {
               {/* ======================================= */}
               {activeSheet === 'bottle' && (
                 <div className="space-y-4">
+                  {/* Swallowing noises button (with irrelevant icon, e.g., 🦩) */}
+                  <button
+                    type="button"
+                    onClick={() => setSwallowingNoises(prev => !prev)}
+                    className={`w-full py-2.5 px-4 rounded-2xl text-xs font-black border transition-all flex items-center justify-between cursor-pointer ${
+                      swallowingNoises 
+                        ? 'bg-blue-950 text-blue-300 border-blue-500 shadow-md' 
+                        : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm">🦩</span>
+                      <span>קולות בליעה? (Swallowing noises?)</span>
+                    </span>
+                    <span className="text-xs font-extrabold font-mono">
+                      {swallowingNoises ? 'כן ✓' : 'לא'}
+                    </span>
+                  </button>
+
                   {/* Bottle vs Breast toggler */}
                   <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-2xl border border-slate-850">
                     <button
@@ -1646,28 +4124,52 @@ export default function App() {
                           <div className="flex gap-1.5">
                             <button 
                               type="button" 
-                              onClick={() => setAmountOfferedMl(prev => Math.max(0, prev - 10))}
+                              onClick={() => {
+                                setAmountOfferedMl(prev => {
+                                  const val = Math.max(0, prev - 10);
+                                  setAmountConsumedMl(val);
+                                  return val;
+                                });
+                              }}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               -10
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountOfferedMl(prev => Math.max(0, prev - 5))}
+                              onClick={() => {
+                                setAmountOfferedMl(prev => {
+                                  const val = Math.max(0, prev - 5);
+                                  setAmountConsumedMl(val);
+                                  return val;
+                                });
+                              }}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               -5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountOfferedMl(prev => prev + 5)}
+                              onClick={() => {
+                                setAmountOfferedMl(prev => {
+                                  const val = prev + 5;
+                                  setAmountConsumedMl(val);
+                                  return val;
+                                });
+                              }}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               +5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountOfferedMl(prev => prev + 10)}
+                              onClick={() => {
+                                setAmountOfferedMl(prev => {
+                                  const val = prev + 10;
+                                  setAmountConsumedMl(val);
+                                  return val;
+                                });
+                              }}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               +10
@@ -1974,41 +4476,143 @@ export default function App() {
               {/* ======================================= */}
               {activeSheet === 'sleep' && (
                 <div className="space-y-4">
-                  <p className="text-xs text-indigo-300 bg-indigo-950/40 p-3 rounded-2xl border border-indigo-900/40 font-medium">
-                    שינה חכמה מופעלת כעת. בחר את שעת תחילת השינה ומיקום ההשכבה:
-                  </p>
-
-                  {/* Sleep Start Time Picker (Always visible) */}
-                  <div>
-                    <label className="block text-xs font-black text-slate-400 mb-1">שעת תחילת השינה</label>
-                    <input
-                      type="datetime-local"
-                      value={customTimestamp}
-                      onChange={(e) => setCustomTimestamp(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
-                    />
+                  {/* Selector for Live Tracker vs Manual Range */}
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-2xl border border-slate-850">
+                    <button
+                      type="button"
+                      onClick={() => setSleepLogType('TIMER')}
+                      className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        sleepLogType === 'TIMER' 
+                          ? 'bg-indigo-650 text-white shadow-md' 
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      ⏱️ מעקב פעיל / טיימר
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSleepLogType('MANUAL')}
+                      className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        sleepLogType === 'MANUAL' 
+                          ? 'bg-indigo-650 text-white shadow-md' 
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      📅 תיעוד שינה שהסתיימה
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-black text-slate-400 mb-1.5">מיקום השכבה</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { value: 'CRIB', label: '🛌 עריסה / מיטה' },
-                        { value: 'HANDS', label: '🤲 על הידיים' },
-                        { value: 'CARRIER', label: '🎒 במנשא' },
-                        { value: 'STROLLER', label: '🛒 בעגלה' }
-                      ].map((item) => (
-                        <button
-                          key={item.value}
-                          type="button"
-                          onClick={() => handleSleepToggle(item.value as SleepLocationType)}
-                          className="py-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-xs font-black text-slate-200 text-center active:bg-slate-800"
-                        >
-                          {item.label}
-                        </button>
-                      ))}
+                  {sleepLogType === 'TIMER' ? (
+                    <div className="space-y-4">
+                      <p className="text-xs text-indigo-300 bg-indigo-950/40 p-3 rounded-2xl border border-indigo-900/40 font-medium text-right">
+                        מעקב שינה פעיל. בחר את שעת תחילת השינה ולחץ על מיקום ההשכבה כדי להתחיל את שעון המעקב:
+                      </p>
+
+                      {/* Sleep Start Time Picker (Always visible) */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1">שעת תחילת השינה</label>
+                        <input
+                          type="datetime-local"
+                          value={customTimestamp}
+                          onChange={(e) => setCustomTimestamp(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1.5">מיקום השכבה (יתחיל את הטיימר)</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 'CRIB', label: '🛌 עריסה / מיטה' },
+                            { value: 'HANDS', label: '🤲 על הידיים' },
+                            { value: 'CARRIER', label: '🎒 במנשא' },
+                            { value: 'STROLLER', label: '🛒 בעגלה' }
+                          ].map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => handleSleepToggle(item.value as SleepLocationType)}
+                              className="py-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-xs font-black text-slate-200 text-center active:bg-slate-800 cursor-pointer"
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-4 text-right">
+                      <p className="text-xs text-indigo-300 bg-indigo-950/40 p-3 rounded-2xl border border-indigo-900/40 font-medium">
+                        הזן ידנית את זמני ההירדמות והיקיצה של התינוק כדי ליצור תיעוד מלא:
+                      </p>
+
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1">💤 שעת תחילת שינה (הלך לישון)</label>
+                        <input
+                          type="datetime-local"
+                          value={customSleepStartAt}
+                          onChange={(e) => setCustomSleepStartAt(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1">⏰ שעת התעוררות (הקיץ משנתו)</label>
+                        <input
+                          type="datetime-local"
+                          value={customSleepEndAt}
+                          onChange={(e) => setCustomSleepEndAt(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-black text-slate-400 font-bold">📍 מיקום השכבה</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 'CRIB', label: '🛌 עריסה' },
+                            { value: 'HANDS', label: '🤲 ידיים' },
+                            { value: 'CARRIER', label: '🎒 מנשא' },
+                            { value: 'STROLLER', label: '🛒 עגלה' }
+                          ].map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setSleepLocation(item.value as SleepLocationType)}
+                              className={`py-2.5 rounded-xl text-xs font-black text-center transition-all border cursor-pointer ${
+                                sleepLocation === item.value 
+                                  ? 'bg-indigo-950 text-indigo-300 border-indigo-500 shadow-md' 
+                                  : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-850/60">
+                        <label className="block text-xs font-black text-slate-400 mb-1.5">הערה לשינה (אופציונלי)</label>
+                        <input
+                          type="text"
+                          value={noteText}
+                          onChange={(e) => setNoteText(e.target.value)}
+                          placeholder="למשל: נרדם בקושי, התעורר מרעש"
+                          className="w-full bg-slate-950 border border-slate-850 text-slate-200 rounded-xl px-3 py-2.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
+                        />
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          disabled={submitting}
+                          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-2xl text-sm shadow-xl transition-colors cursor-pointer"
+                        >
+                          {submitting ? 'שומר...' : 'שמור תיעוד שינה ✔️'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2129,6 +4733,136 @@ export default function App() {
               )}
 
               {/* ======================================= */}
+              {/* PUMPING FORM */}
+              {/* ======================================= */}
+              {activeSheet === 'pumping' && (
+                <div className="space-y-4">
+                  {/* Left Breast Pump amount */}
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-850 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-black text-slate-400 block">⬅️ שד שמאל (מ״ל)</span>
+                        <span className="text-lg font-black text-fuchsia-400">
+                          {pumpLeftAmount} מ״ל
+                        </span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button 
+                          type="button" 
+                          onClick={() => setPumpLeftAmount(prev => Math.max(0, prev - 10))}
+                          className="w-8 h-8 bg-slate-800 text-slate-200 rounded-lg flex items-center justify-center font-bold active:bg-slate-700 text-xs"
+                        >
+                          -10
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setPumpLeftAmount(prev => prev + 10)}
+                          className="w-8 h-8 bg-slate-800 text-slate-200 rounded-lg flex items-center justify-center font-bold active:bg-slate-700 text-xs"
+                        >
+                          +10
+                        </button>
+                      </div>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="250" 
+                      step="5" 
+                      value={pumpLeftAmount} 
+                      onChange={(e) => setPumpLeftAmount(Number(e.target.value))}
+                      className="w-full accent-fuchsia-500 bg-slate-800 rounded-lg appearance-none h-1.5 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Right Breast Pump amount */}
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-850 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-black text-slate-400 block">➡️ שד ימין (מ״ל)</span>
+                        <span className="text-lg font-black text-fuchsia-400">
+                          {pumpRightAmount} מ״ל
+                        </span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button 
+                          type="button" 
+                          onClick={() => setPumpRightAmount(prev => Math.max(0, prev - 10))}
+                          className="w-8 h-8 bg-slate-800 text-slate-200 rounded-lg flex items-center justify-center font-bold active:bg-slate-700 text-xs"
+                        >
+                          -10
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setPumpRightAmount(prev => prev + 10)}
+                          className="w-8 h-8 bg-slate-800 text-slate-200 rounded-lg flex items-center justify-center font-bold active:bg-slate-700 text-xs"
+                        >
+                          +10
+                        </button>
+                      </div>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="250" 
+                      step="5" 
+                      value={pumpRightAmount} 
+                      onChange={(e) => setPumpRightAmount(Number(e.target.value))}
+                      className="w-full accent-fuchsia-500 bg-slate-800 rounded-lg appearance-none h-1.5 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ======================================= */}
+              {/* VOMITING FORM */}
+              {/* ======================================= */}
+              {activeSheet === 'vomiting' && (
+                <div className="space-y-4">
+                  <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3">
+                    <label className="text-xs font-black text-slate-300 block">דרגת/גודל הפליטה</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setVomitingSizeInput('SMALL')}
+                        className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          vomitingSizeInput === 'SMALL'
+                            ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-md'
+                            : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-xl">💧</span>
+                        <span>פליטה קלה</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVomitingSizeInput('MEDIUM')}
+                        className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          vomitingSizeInput === 'MEDIUM'
+                            ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 shadow-md'
+                            : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-xl">💦</span>
+                        <span>פליטה בינונית</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVomitingSizeInput('LARGE')}
+                        className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          vomitingSizeInput === 'LARGE'
+                            ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-md'
+                            : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-xl">⚠️</span>
+                        <span>הקאה גדולה</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ======================================= */}
               {/* EDITING AN EVENT IN TIMELINE */}
               {/* ======================================= */}
               {activeSheet === 'edit' && editingEvent && (
@@ -2143,6 +4877,25 @@ export default function App() {
                   {/* Nested form editors */}
                   {editingEvent.eventType === 'NUTRITION' && (
                     <div className="space-y-3">
+                      {/* Swallowing noises button (with irrelevant icon, e.g., 🦩) */}
+                      <button
+                        type="button"
+                        onClick={() => setSwallowingNoises(prev => !prev)}
+                        className={`w-full py-2.5 px-4 rounded-2xl text-xs font-black border transition-all flex items-center justify-between cursor-pointer ${
+                          swallowingNoises 
+                            ? 'bg-blue-950 text-blue-300 border-blue-500 shadow-md' 
+                            : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm">🦩</span>
+                          <span>קולות בליעה? (Swallowing noises?)</span>
+                        </span>
+                        <span className="text-xs font-extrabold font-mono">
+                          {swallowingNoises ? 'כן ✓' : 'לא'}
+                        </span>
+                      </button>
+
                       <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl">
                         <button 
                           type="button" 
@@ -2221,6 +4974,113 @@ export default function App() {
                       </div>
                     </div>
                   )}
+
+                  {editingEvent.eventType === 'PUMPING' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-bold">⬅️ שד שמאל (מ״ל)</label>
+                          <input type="number" value={pumpLeftAmount} onChange={(e) => setPumpLeftAmount(Number(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl p-2 text-xs" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-bold">➡️ שד ימין (מ״ל)</label>
+                          <input type="number" value={pumpRightAmount} onChange={(e) => setPumpRightAmount(Number(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl p-2 text-xs" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {editingEvent.eventType === 'VOMITING' && (
+                    <div className="space-y-3 bg-slate-950/40 p-4 rounded-2xl border border-slate-850 font-sans text-right">
+                      <label className="text-xs font-black text-slate-300 block mb-2">דרגת/גודל הפליטה</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setVomitingSizeInput('SMALL')}
+                          className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            vomitingSizeInput === 'SMALL'
+                              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-md'
+                              : 'bg-slate-900 border-slate-850 text-slate-400'
+                          }`}
+                        >
+                          <span className="text-xl">💧</span>
+                          <span>פליטה קלה</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVomitingSizeInput('MEDIUM')}
+                          className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            vomitingSizeInput === 'MEDIUM'
+                              ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 shadow-md'
+                              : 'bg-slate-900 border-slate-850 text-slate-400'
+                          }`}
+                        >
+                          <span className="text-xl">💦</span>
+                          <span>פליטה בינונית</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVomitingSizeInput('LARGE')}
+                          className={`py-3.5 px-2 rounded-2xl border text-xs font-black flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            vomitingSizeInput === 'LARGE'
+                              ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-md'
+                              : 'bg-slate-900 border-slate-850 text-slate-400'
+                          }`}
+                        >
+                          <span className="text-xl">⚠️</span>
+                          <span>הקאה גדולה</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                   {editingEvent.eventType === 'SLEEP' && (
+                    <div className="space-y-4 text-right">
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1">💤 שעת תחילת שינה (הלך לישון)</label>
+                        <input
+                          type="datetime-local"
+                          value={customSleepStartAt}
+                          onChange={(e) => setCustomSleepStartAt(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-black text-slate-400 mb-1">⏰ שעת התעוררות (הקיץ משנתו)</label>
+                        <input
+                          type="datetime-local"
+                          value={customSleepEndAt}
+                          onChange={(e) => setCustomSleepEndAt(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-black text-slate-400 font-bold">📍 מיקום השכבה</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 'CRIB', label: '🛌 עריסה' },
+                            { value: 'HANDS', label: '🤲 ידיים' },
+                            { value: 'CARRIER', label: '🎒 מנשא' },
+                            { value: 'STROLLER', label: '🛒 עגלה' }
+                          ].map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setSleepLocation(item.value as SleepLocationType)}
+                              className={`py-2.5 rounded-xl text-xs font-black text-center transition-all border cursor-pointer ${
+                                sleepLocation === item.value 
+                                  ? 'bg-indigo-950 text-indigo-300 border-indigo-500 shadow-md' 
+                                  : 'bg-slate-950 border-slate-850 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2230,25 +5090,27 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3.5">
                     
                     {/* Event Time (Always Visible & Pre-filled) */}
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-1">שעת האירוע</label>
-                      <input
-                        type="datetime-local"
-                        value={customTimestamp}
-                        onChange={(e) => setCustomTimestamp(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
-                      />
-                    </div>
+                    {!(activeSheet === 'edit' && editingEvent?.eventType === 'SLEEP') && (
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 mb-1">שעת האירוע</label>
+                        <input
+                          type="datetime-local"
+                          value={customTimestamp}
+                          onChange={(e) => setCustomTimestamp(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
+                        />
+                      </div>
+                    )}
 
                     {/* Text Note Field (Always Visible) */}
-                    <div>
+                    <div className={activeSheet === 'edit' && editingEvent?.eventType === 'SLEEP' ? 'col-span-2' : ''}>
                       <label className="block text-[10px] font-black text-slate-400 mb-1">הערה חופשית (אופציונלי)</label>
                       <input
                         type="text"
                         value={noteText}
                         onChange={(e) => setNoteText(e.target.value)}
                         placeholder="למשל: סירב לסיים, פלט מעט"
-                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
                       />
                     </div>
 
@@ -2336,6 +5198,95 @@ export default function App() {
         </button>
 
       </nav>
+
+      {/* Floating Big Nap Warning Pill */}
+      {!isBigNapRecorded() && !dismissedBigNapWarning && (
+        <div className="fixed bottom-24 right-4 z-30">
+          <motion.button
+            type="button"
+            initial={{ scale: 0, y: 50 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0, y: 50 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              const todayStr = new Date().toDateString();
+              localStorage.setItem(`bt_dismissed_bignap_${todayStr}`, 'true');
+              setDismissedBigNapWarning(true);
+              showToast('ההתראה הוסתרה להיום ✔️');
+            }}
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-550 hover:to-indigo-550 text-white font-black px-4 py-3 rounded-full shadow-2xl border border-indigo-400/30 animate-bounce cursor-pointer text-xs"
+          >
+            <span className="text-sm">😴</span>
+            <span>חסרה שנת צהריים גדולה 💤</span>
+            <span className="w-5 h-5 rounded-full bg-black/25 flex items-center justify-center text-[10px] hover:bg-black/40 mr-1 transition-all">✕</span>
+          </motion.button>
+        </div>
+      )}
+
+      {/* Floating Bath Time Reminder Pill */}
+      {isBathSlotTime() && !dismissedBathWarning && (
+        <div className="fixed bottom-24 left-4 z-30">
+          <motion.button
+            type="button"
+            initial={{ scale: 0, y: 50 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0, y: 50 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              const todayStr = new Date().toDateString();
+              localStorage.setItem(`bt_dismissed_bath_${todayStr}`, 'true');
+              setDismissedBathWarning(true);
+              showToast('תזכורת האמבטיה הוסתרה ✔️');
+            }}
+            className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-450 hover:to-rose-550 text-white font-black px-4.5 py-3.5 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.45)] border border-amber-400 animate-pulse cursor-pointer text-xs"
+          >
+            <span className="text-base animate-bounce">🛁</span>
+            <span>זמן לאמבטיה היומית! 🧼🫧</span>
+            <span className="w-5 h-5 rounded-full bg-black/25 flex items-center justify-center text-[10px] hover:bg-black/40 mr-1.5 transition-all">✕</span>
+          </motion.button>
+        </div>
+      )}
+
+      {/* CONFIRMATION MODAL FOR CLEARING/RESETTING DATA */}
+      {clearType && (
+        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 transition-opacity">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-[32px] p-6 shadow-2xl z-50 text-right space-y-5">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-base font-black text-rose-400">
+                {clearType === 'all' ? 'אתחול מלא ומחיקת כל הנתונים' : 'מחיקת נתונים מתאריך מסוים ואחורה'}
+              </h3>
+            </div>
+            
+            <p className="text-xs text-slate-300 leading-normal font-medium">
+              {clearType === 'all' ? (
+                'האם אתה בטוח לחלוטין שברצונך למחוק את כל הנתונים והאירועים של התינוק במערכת? פעולה זו תמחק לצמיתות את כל הארוחות, ההנקות, השקילות, השינות והחיתולים, ולא יהיה ניתן לשחזר אותם!'
+              ) : (
+                `האם אתה בטוח שברצונך למחוק לצמיתות את כל האירועים שנרשמו בתאריך ${clearCutoffDate} ואחורה? נתוני המערכת יישארו פעילים רק עבור אירועים מהתאריך הזה והלאה.`
+              )}
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setClearType(null)}
+                disabled={submitting}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-2xl text-xs transition-all cursor-pointer"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={() => handleClearData(clearType)}
+                disabled={submitting}
+                className="flex-1 bg-rose-650 hover:bg-rose-700 text-white font-black py-2.5 rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
+              >
+                {submitting ? 'מוחק...' : 'כן, למחוק לצמיתות'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

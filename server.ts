@@ -7,7 +7,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import ExcelJS from 'exceljs';
-import { getSettings, saveSettings, getAllEvents, getOpenSleepSession, saveEvent, deleteEvent } from './server/db';
+import { getSettings, saveSettings, getAllEvents, getOpenSleepSession, saveEvent, deleteEvent, clearAllEvents } from './server/db';
 import { BabyEvent, EventType, UserSettings, SleepLocationType } from './src/types';
 
 const app = express();
@@ -99,6 +99,7 @@ app.post('/api/sleep/toggle', async (req, res) => {
     const loggedBy = req.body.loggedBy || 'PARENT_A';
     const startLocation = req.body.startLocation || 'CRIB';
     const customStartAt = req.body.customStartAt;
+    const quickRecorded = req.body.quickRecorded || false;
 
     // Find if there's already an open sleep session
     const openSession = await getOpenSleepSession();
@@ -112,6 +113,9 @@ app.post('/api/sleep/toggle', async (req, res) => {
 
         openSession.sleep.endAt = now;
         openSession.sleep.durationMinutes = durationMinutes;
+        if (quickRecorded) {
+          openSession.quickRecorded = true;
+        }
         
         await saveEvent(openSession);
         res.json(openSession);
@@ -126,6 +130,7 @@ app.post('/api/sleep/toggle', async (req, res) => {
         timestamp: startAt,
         eventType: 'SLEEP',
         loggedBy,
+        quickRecorded,
         sleep: {
           startAt: startAt,
           endAt: null,
@@ -256,6 +261,25 @@ app.delete('/api/events/:id', async (req, res) => {
     res.json({ success: true, deletedId: id });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete event' });
+  }
+});
+
+app.post('/api/events/clear', async (req, res) => {
+  try {
+    const { before } = req.body || {};
+    const success = await clearAllEvents(before);
+    if (!success) {
+      res.status(500).json({ error: 'Failed to clear some events' });
+      return;
+    }
+    res.json({ 
+      success: true, 
+      message: before 
+        ? `Logged events before ${before} cleared successfully` 
+        : 'All logged events cleared successfully' 
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to clear events' });
   }
 });
 
@@ -705,8 +729,58 @@ app.get('/api/export/xlsx', async (req, res) => {
       });
     });
 
+    // ------------------------------------------
+    // Sheet 6: Pumping / שאיבת חלב
+    // ------------------------------------------
+    const wsPumping = workbook.addWorksheet('Pumping - שאיבות', { views: [{ rightToLeft: true }] });
+    wsPumping.columns = [
+      { header: 'תאריך / Date', key: 'date', width: 15 },
+      { header: 'שעה / Time', key: 'time', width: 12 },
+      { header: 'שמאל (מ״ל) / Left (ml)', key: 'left', width: 20 },
+      { header: 'ימין (מ״ל) / Right (ml)', key: 'right', width: 20 },
+      { header: 'סה״ך (מ״ל) / Total (ml)', key: 'total', width: 20 },
+      { header: 'נרשם על ידי / Logged By', key: 'loggedBy', width: 18 },
+      { header: 'הערה / Notes', key: 'notes', width: 30 }
+    ];
+
+    events.filter(e => e.eventType === 'PUMPING' && e.pumping).forEach(e => {
+      const p = e.pumping!;
+      wsPumping.addRow({
+        date: toIsraelLocalDateStr(e.timestamp),
+        time: toIsraelLocalTimeStr(e.timestamp),
+        left: p.leftAmountMl,
+        right: p.rightAmountMl,
+        total: p.leftAmountMl + p.rightAmountMl,
+        loggedBy: e.loggedBy === 'PARENT_A' ? (settings.parentAName || 'אמא') : (settings.parentBName || 'אבא'),
+        notes: e.notes || ''
+      });
+    });
+
+    // ------------------------------------------
+    // Sheet 7: Vomiting / פליטות
+    // ------------------------------------------
+    const wsVomiting = workbook.addWorksheet('Vomiting - פליטות', { views: [{ rightToLeft: true }] });
+    wsVomiting.columns = [
+      { header: 'תאריך / Date', key: 'date', width: 15 },
+      { header: 'שעה / Time', key: 'time', width: 12 },
+      { header: 'גודל פליטה / Spit Up Size', key: 'size', width: 22 },
+      { header: 'נרשם על ידי / Logged By', key: 'loggedBy', width: 18 },
+      { header: 'הערה / Notes', key: 'notes', width: 30 }
+    ];
+
+    events.filter(e => e.eventType === 'VOMITING' && e.vomiting).forEach(e => {
+      const v = e.vomiting!;
+      wsVomiting.addRow({
+        date: toIsraelLocalDateStr(e.timestamp),
+        time: toIsraelLocalTimeStr(e.timestamp),
+        size: v.size === 'SMALL' ? 'קטנה' : (v.size === 'MEDIUM' ? 'בינונית' : 'גדולה'),
+        loggedBy: e.loggedBy === 'PARENT_A' ? (settings.parentAName || 'אמא') : (settings.parentBName || 'אבא'),
+        notes: e.notes || ''
+      });
+    });
+
     // Style and validate all sheets
-    [wsSummary, wsFeeds, wsSleep, wsDiapers, wsWeight].forEach(ws => {
+    [wsSummary, wsFeeds, wsSleep, wsDiapers, wsWeight, wsPumping, wsVomiting].forEach(ws => {
       styleHeaderRow(ws);
       applyBorders(ws);
     });
