@@ -1565,7 +1565,7 @@ export default function App() {
     resetForm();
     setEditingEvent(event);
     setActiveSheet('edit');
-    setCustomTimestamp(event.timestamp.slice(0, 16));
+    setCustomTimestamp(getLocalDatetimeString(new Date(event.timestamp)));
     setNoteText(event.notes || '');
 
     if (event.eventType === 'NUTRITION' && event.nutrition) {
@@ -1603,8 +1603,8 @@ export default function App() {
     } else if (event.eventType === 'VOMITING' && event.vomiting) {
       setVomitingSizeInput(event.vomiting.size);
     } else if (event.eventType === 'SLEEP' && event.sleep) {
-      setCustomSleepStartAt(event.sleep.startAt ? event.sleep.startAt.slice(0, 16) : '');
-      setCustomSleepEndAt(event.sleep.endAt ? event.sleep.endAt.slice(0, 16) : '');
+      setCustomSleepStartAt(event.sleep.startAt ? getLocalDatetimeString(new Date(event.sleep.startAt)) : '');
+      setCustomSleepEndAt(event.sleep.endAt ? getLocalDatetimeString(new Date(event.sleep.endAt)) : '');
       setSleepLocation(event.sleep.startLocation || 'CRIB');
     }
   };
