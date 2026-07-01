@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(office-hours)",
+      "Skill(investigate)",
+      "Skill(investigate:*)"
+    ]
+  }
+}
