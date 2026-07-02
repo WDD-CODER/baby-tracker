@@ -33,6 +33,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType } from './types';
+import { InstallAppButton } from './components/InstallAppButton';
 
 const DiaperIcon = ({ className = "w-5 h-5", strokeWidth = 2 }: { className?: string, strokeWidth?: number }) => (
   <svg 
@@ -3858,6 +3859,8 @@ export default function App() {
         {/* TAB 4: APP SETTINGS & PEDIATRICIAN REPORT EXPORT */}
         {activeTab === 'settings' && (
           <div className="flex flex-col gap-4">
+
+            <InstallAppButton />
             
             {/* EXPORT SECTION */}
             <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">
