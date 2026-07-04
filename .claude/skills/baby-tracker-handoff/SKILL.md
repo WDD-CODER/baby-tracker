@@ -51,14 +51,15 @@ If `memory_save` fails, errors, or AgentMemory is unreachable → use the file f
 3. **Files touched:** list every path changed
 4. **What changed:** concise bullet list of behavior/code changes
 5. **Verification:** `npm run lint` / `npm run build` / manual — pass or fail with error excerpt
-6. **Next:** what the human or next milestone should do
+6. **Visual check:** where in the app to look, what changed visually (before → after); or explicit "no visible change yet" for types-only milestones
+7. **Next:** what the human or next milestone should do
 
 ### Steps
 
 1. Build the summary using the template below.
 2. Call `memory_save` (primary).
 3. Append the same summary to `sessions/YYYY-MM-DD.md` (create or append; use today's date in `YYYY-MM-DD`). Use one `## Milestone N — [title]` section per milestone.
-4. Tell the user: handoff destination and one-line status.
+4. Tell the user: handoff destination, one-line status, and repeat the **👀 Visual check** block from the handoff (human-facing — do not bury it only in AgentMemory).
 
 ### Template (AgentMemory `content` and session file body)
 
@@ -73,6 +74,11 @@ If `memory_save` fails, errors, or AgentMemory is unreachable → use the file f
 
 ### What changed
 - ...
+
+### Visual check
+1. [Where to go in the app]
+2. Look at: [specific element]
+3. Before → Now: [concrete difference, or "no visible change — types only until Mx"]
 
 ### Verification
 | Check | Result |
@@ -188,5 +194,6 @@ Post-commit handoff is **in addition to** milestone handoff when both occur in o
 Before stopping, confirm in your last reply:
 
 - [ ] Milestone handoff done (or 3-strike bug filed + pointer written)
+- [ ] **👀 Visual check** block in final message (specific screen/element + before/after, or "no visible change yet")
 - [ ] Post-commit handoff done (if a commit was made this session)
 - [ ] Stated whether each handoff went to **AgentMemory** or **sessions/YYYY-MM-DD.md**
