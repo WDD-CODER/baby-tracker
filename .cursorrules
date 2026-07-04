@@ -5,6 +5,7 @@ Read `_shared/agent-guide.md` before touching code. Stack authority: `_shared/te
 ## Execution
 
 - **ONE milestone per session.** Complete it, hand off, STOP. Do not self-chain to the next milestone.
+- **Bug fixes:** Invoke `baby-tracker-fix-bugs` skill (`.claude/skills/baby-tracker-fix-bugs/SKILL.md`). Scan `bugs/` for OPEN files, ask permission, fix one file, mark it DONE, hand off. One bug file per session.
 - **3-strike rule:** Max 3 attempts to fix a failing compile/lint/test error within scoped files. On the 3rd failure, stop — do not try a 4th time.
 - **Never hardcode secrets.** Use `.env` only. Never commit `.env` or credential JSON.
 - **Commits are human-only.** Create a commit only when the human explicitly asks.

@@ -161,6 +161,7 @@ export default function App() {
   // Active Logging bottom sheets
   const [activeSheet, setActiveSheet] = useState<'bottle' | 'diaper' | 'activity' | 'weight' | 'pumping' | 'vomiting' | 'sleep' | 'edit' | null>(null);
   const [editingEvent, setEditingEvent] = useState<BabyEvent | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Stats Data
   const [nutritionStats, setNutritionStats] = useState<any[]>([]);
@@ -1506,8 +1507,14 @@ export default function App() {
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
-    if (!confirm('האם למחוק את האירוע הזה?')) return;
+  const handleDeleteEvent = (id: string) => {
+    setPendingDeleteId(id);
+  };
+
+  const confirmDeleteEvent = async () => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
     try {
       const res = await fetch(`/api/events/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -2046,6 +2053,31 @@ export default function App() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Delete confirmation strip */}
+      {pendingDeleteId && (
+        <div className="fixed bottom-24 left-0 right-0 z-50 px-4">
+          <div className="max-w-md mx-auto bg-slate-900 border border-rose-900/60 rounded-2xl p-4 shadow-2xl">
+            <p className="text-sm font-bold text-slate-100 text-center mb-3">האם למחוק את האירוע הזה?</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={confirmDeleteEvent}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-2.5 rounded-xl text-sm cursor-pointer"
+              >
+                מחק
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(null)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold py-2.5 rounded-xl text-sm cursor-pointer"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

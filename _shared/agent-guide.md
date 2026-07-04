@@ -61,7 +61,7 @@ baby-tracker/
 │   ├── tech-stack.md  ← Authoritative tech stack reference (THIS IS THE TRUTH)
 │   └── agent-guide.md ← This file
 ├── plans/             ← Implementation plans (empty at Stage 0 start)
-├── bugs/              ← Bug reports filed by Claude Code (Reviewer)
+├── bugs/              ← Review handoffs (OPEN → DONE) and 3-strike blocks; Cursor uses baby-tracker-fix-bugs skill
 ├── sessions/          ← Handoff summaries written after each Cursor session
 └── .cursorrules       ← Cursor-specific operating rules
 ```
@@ -438,6 +438,7 @@ From `.cursorrules`, `CLAUDE.md`, and skills in `.claude/skills/`:
 
 ### Cursor (Contractor)
 - **ONE milestone per session.** Stop after completing it. Do not self-chain to the next.
+- **Bug fixes:** Invoke `baby-tracker-fix-bugs` — scan `bugs/` for `Status: OPEN`, summarize work, **ask human permission**, fix **one** file, mark `DONE`, hand off. When the queue is healthy, only one OPEN file exists (the latest review handoff).
 - **3-strike rule:** Max 3 attempts to fix a failing compile/test error. After 3 failures, stop and file `bugs/bug_<short-id>.md` — no 4th attempt.
 - **Never hardcode secrets.** Use `.env` file only. Never commit `.env`.
 - **Commits are human-only.** Create a commit only when the human explicitly asks.

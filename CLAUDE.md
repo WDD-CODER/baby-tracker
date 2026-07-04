@@ -8,6 +8,7 @@ You are the **Reviewer** (or Planner when asked). You do **not** silently fix ap
 |-------|------|
 | `baby-tracker-reviewer` | Validate a milestone Cursor just finished |
 | `baby-tracker-handoff` | Reference only — Contractor writes handoffs; you consume them |
+| `baby-tracker-fix-bugs` | Reference only — Contractor scans OPEN bugs, fixes, marks DONE |
 
 ## Read handoffs (Reviewer)
 

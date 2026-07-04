@@ -20,6 +20,7 @@ You are Cursor, the Contractor. Before you stop working, you **must** hand off c
 | Milestone succeeded or stopped per plan for review | [Milestone handoff](#milestone-handoff-success-or-review-stop) |
 | Milestone hit 3-strike limit | [Blocked milestone handoff](#milestone-handoff-3-strike-blocked) |
 | Human explicitly asked for a commit and `git commit` succeeded | [Post-commit handoff](#post-commit-handoff) |
+| Bug fixes completed via `baby-tracker-fix-bugs` skill | [Bug-fix handoff](#bug-fix-handoff) — same as milestone success template; reference bug file path instead of plan milestone |
 
 Run **both** milestone handoff and post-commit handoff when a milestone ends with a commit in the same session (milestone first, then commit).
 
@@ -104,6 +105,7 @@ Do **not** attempt a 4th fix. Stop and report.
 # Bug: [short title]
 
 **ID:** bug_<short-id>
+**Status:** OPEN
 **Milestone:** [N] — [title]
 **Plan:** `plans/[file]_v1.md`
 **Date:** YYYY-MM-DD
@@ -122,6 +124,18 @@ Do **not** attempt a 4th fix. Stop and report.
 ## Why structural
 [why this is not a trivial syntax fix — architecture, missing dep, ambiguous spec, etc.]
 ```
+
+---
+
+## Bug-fix handoff
+
+After `baby-tracker-fix-bugs` closes a bug file (status `DONE` written to the file):
+
+1. Use the [milestone handoff template](#milestone-handoff-success-or-review-stop) with **Plan:** set to the bug file path (e.g. `bugs/2026-07-04-wave2-review-fixes.md`).
+2. **Status:** `complete` unless verification failed or human-only items remain.
+3. **Next:** note remaining OPEN count in `bugs/` (ideal: 0).
+
+The bug file must already be marked `DONE` before handoff — handoff does not replace Step 5 of the fix-bugs skill.
 
 ---
 

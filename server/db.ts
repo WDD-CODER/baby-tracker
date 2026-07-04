@@ -157,6 +157,7 @@ export async function deleteEvent(id: string): Promise<boolean> {
     if (!docSnap.exists) {
       return false;
     }
+    // update() is intentional here — we want to stamp only deletedAt, not overwrite the full document
     await docRef.update({ deletedAt: new Date().toISOString() });
     return true;
   } catch (err) {

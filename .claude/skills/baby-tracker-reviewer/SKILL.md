@@ -106,9 +106,39 @@ Findings:
 Verdict: Ready for human verification / Needs fixes before verification
 ```
 
-After outputting the report, append a `## Review — [date]` section to `sessions/YYYY-MM-DD.md` with a one-paragraph summary of findings and the verdict.
+---
 
-If there are actionable bugs worth tracking separately (not just milestone fixes), file them to `bugs/bug_<short-id>.md`.
+## Step 6 — Write the Cursor handoff (always, even for a clean pass)
+
+After the report, create `bugs/YYYY-MM-DD-[milestone-slug]-review.md`. This is what Cursor reads via the `baby-tracker-fix-bugs` skill. It must exist even when there are no findings (write "No action required" in that case).
+
+### Required sections in the handoff file
+
+**Header:** date, commit reviewed, verdict, priority, and **`> **Status:** OPEN`** (Cursor sets `DONE` when fixes are verified).
+
+```markdown
+# Bug Report — [title]
+> Filed by: Reviewer (Claude Code)
+> Date: YYYY-MM-DD
+> **Status:** OPEN
+> Commit reviewed: `[hash]`
+> Priority: [level]
+```
+
+**For each finding:** file path + approximate line number, the exact problem in one sentence, the required change with a concrete code example or pseudocode. Be specific enough that Cursor can act without asking questions.
+
+**Acceptance criteria:** a short checklist Cursor must verify before closing the bug:
+- `npm run lint` passes
+- `npm run build` passes
+- any manual smoke test steps specific to the changed behavior
+
+**Human-only items:** clearly separate any decisions that require human input (architecture calls, policy questions, plan file creation) so Cursor doesn't attempt them.
+
+---
+
+## Step 7 — Append to session file
+
+Append a `## Review — [date]` section to today's `sessions/YYYY-MM-DD.md` (or the most recent one if no file exists for today). Include: commit hash reviewed, one-paragraph summary of findings, verdict, and a pointer to the bug file created in Step 6.
 
 ---
 
