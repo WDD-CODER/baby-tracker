@@ -7,7 +7,7 @@ This document tells AI agents exactly how the project works, where everything li
 
 ## 1. Who Does What
 
-This project runs a **Manual Bridge Workflow (Stage 0)**:
+This project runs a **Manual Bridge Workflow (Stage 0.5)** — AgentMemory for handoffs, `sessions/` and `bugs/` as fallbacks:
 
 | Agent | Role | Primary Files |
 |-------|------|---------------|
@@ -434,25 +434,42 @@ Do NOT import from `framer-motion` — it's been renamed.
 
 ## 13. Workflow Rules (Mandatory)
 
-From `.cursorrules` and `CLAUDE.md`:
+From `.cursorrules`, `CLAUDE.md`, and skills in `.claude/skills/`:
 
 ### Cursor (Contractor)
 - **ONE milestone per session.** Stop after completing it. Do not self-chain to the next.
-- **3-strike rule:** Max 3 attempts to fix a failing compile/test error. After 3 failures, revert and file a bug to `bugs/`.
+- **3-strike rule:** Max 3 attempts to fix a failing compile/test error. After 3 failures, stop and file `bugs/bug_<short-id>.md` — no 4th attempt.
 - **Never hardcode secrets.** Use `.env` file only. Never commit `.env`.
-- **Session handoff:** Write summary to `sessions/YYYY-MM-DD.md` at end of each session.
+- **Commits are human-only.** Create a commit only when the human explicitly asks.
+- **Mandatory milestone handoff (always):** Invoke `baby-tracker-handoff` skill before stopping — success, partial, review stop, or 3-strike. Primary: AgentMemory `memory_save` (project: `baby-tracker`). Fallback: append `sessions/YYYY-MM-DD.md`. Never skip even if the execution prompt omits handoff.
+- **Mandatory post-commit handoff:** After a successful human-requested `git commit`, invoke the same skill's post-commit procedure — summarize hash, message, files, and what changed into AgentMemory (fallback: `sessions/YYYY-MM-DD.md`).
 - **Stack authority:** Check `_shared/tech-stack.md` before any tech decision. Do not invent stack.
 
 ### Claude Code (Reviewer)
 - **Never silently fix code.** Surface issues and recommend. Let Cursor/human apply the fix.
 - **Validate milestones** against acceptance criteria before marking complete.
+- **Read handoffs** from AgentMemory (`memory_recall`) first, then `sessions/YYYY-MM-DD.md`.
 - **Check for secrets leakage** and scope creep in every review.
-- **Write bug reports** to `bugs/YYYY-MM-DD-{slug}.md` for actionable issues found.
+- **Write bug reports** to `bugs/bug_<short-id>.md` for actionable issues found.
 - **Append review findings** to `sessions/YYYY-MM-DD.md`.
 
 ### Both Agents
-- Do not use `recall` or AgentMemory — not wired in Stage 0.
+- **AgentMemory** (MCP `user-agentmemory`) is the primary handoff bus; `sessions/` and `bugs/` are durable fallbacks and audit trail.
 - Tech stack reference is `_shared/tech-stack.md`. This is the law.
+
+### Plan authors — Cursor execution prompt snippet
+
+Include in every plan's "Cursor Execution Instructions" block:
+
+```
+Execute ONLY Milestone [N] from plans/[plan]_v1.md.
+- Read the plan and follow _shared/tech-stack.md and .cursorrules.
+- Do NOT mark the milestone complete in the plan file.
+- Do NOT start the next milestone. One milestone, then STOP.
+- 3-strike rule: max 3 fix attempts in scoped files, then stop and file bugs/bug_<id>.md.
+- BEFORE STOPPING (mandatory): invoke baby-tracker-handoff skill — AgentMemory first, sessions/YYYY-MM-DD.md fallback.
+- If the human asks for a commit and it succeeds: run post-commit handoff from the same skill.
+```
 
 ---
 

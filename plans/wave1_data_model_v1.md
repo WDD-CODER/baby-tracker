@@ -245,6 +245,7 @@ Execute ONLY Milestone [N] from /plans/wave1_data_model_v1.md.
 - Do NOT mark the milestone complete in the plan file.
 - Do NOT start the next milestone.
 - One milestone, then STOP and wait for human review.
-- If you hit an error: at most 3 fix attempts within the scoped files only, then stop and report the error with the full message.
-When done, write a short summary of exactly what you changed to /sessions/[today's date].md, then STOP.
+- 3-strike rule: at most 3 fix attempts within scoped files, then stop and file bugs/bug_<short-id>.md.
+- BEFORE STOPPING (mandatory): invoke baby-tracker-handoff skill — AgentMemory first, sessions/YYYY-MM-DD.md fallback.
+- If the human asks for a commit and it succeeds: run post-commit handoff from the same skill.
 ```

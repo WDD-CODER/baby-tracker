@@ -1,0 +1,41 @@
+# Baby Tracker — Cursor Contractor Rules
+
+Read `_shared/agent-guide.md` before touching code. Stack authority: `_shared/tech-stack.md`.
+
+## Execution
+
+- **ONE milestone per session.** Complete it, hand off, STOP. Do not self-chain to the next milestone.
+- **3-strike rule:** Max 3 attempts to fix a failing compile/lint/test error within scoped files. On the 3rd failure, stop — do not try a 4th time.
+- **Never hardcode secrets.** Use `.env` only. Never commit `.env` or credential JSON.
+- **Commits are human-only.** Create a commit only when the human explicitly asks.
+
+## Mandatory handoff (always — no exception)
+
+Every time you finish a milestone — success, partial success, review stop, or 3-strike block — you **must** hand off **before stopping**, even if the execution prompt does not mention it.
+
+**Invoke the `baby-tracker-handoff` skill** (`.claude/skills/baby-tracker-handoff/SKILL.md`):
+
+1. **Success or review stop:** Write execution summary to AgentMemory via `memory_save` (project: `baby-tracker`). If AgentMemory fails, append the same summary to `sessions/YYYY-MM-DD.md`. Include: plan file + milestone number, files touched, what changed, verification (lint/build), what's next.
+
+2. **3-strike block:** Write structured bug to `bugs/bug_<short-id>.md`. Also write a short pointer to AgentMemory (or `sessions/YYYY-MM-DD.md` if unreachable): `Milestone N blocked — see bugs/bug_<id>.md.` Stop — no 4th fix.
+
+3. **State in your final message** which handoff path was used (AgentMemory or session file).
+
+Handoff happens **immediately when you stop working**, before human review. It is independent of commits.
+
+## Mandatory post-commit handoff
+
+When the human explicitly requests a commit and `git commit` **succeeds**, you **must** immediately invoke `baby-tracker-handoff` **post-commit** procedure:
+
+- Summarize what went into the commit (hash, message, files, behavioral summary, related milestone/plan if any).
+- Write to AgentMemory via `memory_save` (project: `baby-tracker`, concepts include `commit,handoff`).
+- Fallback: append `## Commit — [hash]` to `sessions/YYYY-MM-DD.md` if AgentMemory is unreachable.
+- Tell the user the commit was tracked and where.
+
+If the session also finished a milestone, run **milestone handoff first**, then post-commit handoff.
+
+## Architecture reminders
+
+- Frontend lives in `src/App.tsx` only — no new component dirs unless the plan says so.
+- Types in `src/types.ts`. Firestore in `server/db.ts`. Routes in `server.ts`.
+- Hebrew UI strings; English code and comments.
