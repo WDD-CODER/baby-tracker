@@ -62,7 +62,7 @@ export type SleepLocationType = 'CRIB' | 'HANDS' | 'CARRIER' | 'STROLLER';
 export interface SleepPayload {
   startAt: string; // ISO string
   endAt: string | null; // ISO string or null for in progress
-  startLocation: SleepLocationType;
+  startLocation?: SleepLocationType;
   durationMinutes?: number; // derived on close
   loggedByStart?: ParentType; // parent who pressed "start sleep"
   loggedByEnd?: ParentType; // parent who pressed "end sleep" (absent until session closes)
@@ -104,4 +104,70 @@ export interface BabyEvent {
   pumping?: PumpingPayload;
   vomiting?: VomitingPayload;
   quickRecorded?: boolean;
+}
+
+// === Quality tier system (GAP-04) ===
+
+export type QualityTier = 'BAD' | 'OKAY' | 'GOOD' | 'GREAT';
+
+export const TIER_MAP: Record<QualityTier, { color: string; hebrewLabel: string }> = {
+  BAD: { color: 'var(--color-tier-bad)', hebrewLabel: 'דורש תשומת לב' },
+  OKAY: { color: 'var(--color-tier-okay)', hebrewLabel: 'סביר' },
+  GOOD: { color: 'var(--color-tier-good)', hebrewLabel: 'טוב' },
+  GREAT: { color: 'var(--color-tier-great)', hebrewLabel: 'מצוין' },
+};
+
+export function classifyNutrition(event: NutritionPayload): QualityTier {
+  if (event.feedType === 'BREAST') {
+    const minutes = event.durationMinutes ?? 0;
+    if (minutes < 5) return 'BAD';
+    if (minutes <= 15) return 'GOOD';
+    return 'GREAT';
+  }
+
+  const offered = event.amountOfferedMl ?? 0;
+  const consumed = event.amountConsumedMl ?? 0;
+  if (offered <= 0) return 'OKAY';
+
+  const percent = (consumed / offered) * 100;
+  if (percent < 50) return 'BAD';
+  if (percent < 80) return 'OKAY';
+  if (percent < 100) return 'GOOD';
+  return 'GREAT';
+}
+
+export function classifySleep(durationMinutes: number): QualityTier {
+  if (durationMinutes < 30) return 'BAD';
+  if (durationMinutes <= 45) return 'GOOD';
+  return 'GREAT';
+}
+
+export function classifyDiaper(event: DiaperPayload): QualityTier {
+  if (event.pooTexture === 'HARD' || event.pooAmount === 'LARGE_OVERFLOW') {
+    return 'BAD';
+  }
+
+  const hasPee = event.contains === 'PEE' || event.contains === 'BOTH';
+  const hasPoo = event.contains === 'POO' || event.contains === 'BOTH';
+
+  if (hasPee && event.peeVolume === 'LIGHT') {
+    return 'OKAY';
+  }
+
+  if (hasPee && event.peeVolume === 'HEAVY_SOAKED') {
+    return 'GOOD';
+  }
+
+  if (hasPoo) {
+    return 'GOOD';
+  }
+
+  return 'OKAY';
+}
+
+export function classifyWeight(currentGrams: number, previousGrams: number | null): QualityTier {
+  if (previousGrams === null) return 'OKAY';
+  if (currentGrams < previousGrams) return 'BAD';
+  if (currentGrams > previousGrams) return 'GOOD';
+  return 'OKAY';
 }
