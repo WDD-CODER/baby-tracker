@@ -1,42 +1,32 @@
-# Baby Tracker — Cursor Contractor Rules
+# Baby Tracker — Cursor Rules (legacy pointer)
 
-Read `_shared/agent-guide.md` before touching code. Stack authority: `_shared/tech-stack.md`.
+Rules have moved to `.cursor/rules/*.mdc` — Cursor loads them automatically by file context.
+This file is kept only so older Cursor versions have a fallback.
 
-## Execution
+## Core (always applies)
 
-- **ONE milestone per session.** Complete it, hand off, STOP. Do not self-chain to the next milestone.
-- **Bug fixes:** Invoke `baby-tracker-fix-bugs` skill (`.claude/skills/baby-tracker-fix-bugs/SKILL.md`). Scan `bugs/` for OPEN files, ask permission, fix one file, mark it DONE, hand off. One bug file per session.
-- **3-strike rule:** Max 3 attempts to fix a failing compile/lint/test error within scoped files. On the 3rd failure, stop — do not try a 4th time.
-- **Never hardcode secrets.** Use `.env` only. Never commit `.env` or credential JSON.
-- **Commits are human-only.** Create a commit only when the human explicitly asks.
+See `.cursor/rules/core.mdc` for the full mandatory workflow.
 
-## Mandatory handoff (always — no exception)
+- ONE milestone per session. Complete it, hand off, STOP. No self-chaining.
+- 3-strike rule: max 3 fix attempts in scoped files → `bugs/bug_<id>.md` → stop.
+- Never hardcode secrets. Never commit `.env` or credential JSON.
+- Commits are human-only.
+- Mandatory handoff always: `baby-tracker-handoff` skill before stopping.
 
-Every time you finish a milestone — success, partial success, review stop, or 3-strike block — you **must** hand off **before stopping**, even if the execution prompt does not mention it.
+## Architecture (non-negotiable)
 
-**Invoke the `baby-tracker-handoff` skill** (`.claude/skills/baby-tracker-handoff/SKILL.md`):
-
-1. **Success or review stop:** Write execution summary to AgentMemory via `memory_save` (project: `baby-tracker`). If AgentMemory fails, append the same summary to `sessions/YYYY-MM-DD.md`. Include: plan file + milestone number, files touched, what changed, verification (lint/build), what's next.
-
-2. **3-strike block:** Write structured bug to `bugs/bug_<short-id>.md`. Also write a short pointer to AgentMemory (or `sessions/YYYY-MM-DD.md` if unreachable): `Milestone N blocked — see bugs/bug_<id>.md.` Stop — no 4th fix.
-
-3. **State in your final message** which handoff path was used (AgentMemory or session file).
-
-Handoff happens **immediately when you stop working**, before human review. It is independent of commits.
-
-## Mandatory post-commit handoff
-
-When the human explicitly requests a commit and `git commit` **succeeds**, you **must** immediately invoke `baby-tracker-handoff` **post-commit** procedure:
-
-- Summarize what went into the commit (hash, message, files, behavioral summary, related milestone/plan if any).
-- Write to AgentMemory via `memory_save` (project: `baby-tracker`, concepts include `commit,handoff`).
-- Fallback: append `## Commit — [hash]` to `sessions/YYYY-MM-DD.md` if AgentMemory is unreachable.
-- Tell the user the commit was tracked and where.
-
-If the session also finished a milestone, run **milestone handoff first**, then post-commit handoff.
-
-## Architecture reminders
-
-- Frontend lives in `src/App.tsx` only — no new component dirs unless the plan says so.
-- Types in `src/types.ts`. Firestore in `server/db.ts`. Routes in `server.ts`.
+- Frontend: `src/App.tsx` only. No `components/` dir unless a plan calls for it.
+- Types: `src/types.ts` only.
+- DB: `server/db.ts` only. No Firestore in `server.ts` or `src/`.
+- Routes: `server.ts` only.
 - Hebrew UI strings; English code and comments.
+
+## Other rules — auto-loaded by file context
+
+| Open file | Rule file loaded |
+|-----------|-----------------|
+| `server/db.ts` or `src/types.ts` | `.cursor/rules/db-rules.mdc` |
+| `server.ts` | `.cursor/rules/server-rules.mdc` |
+| `src/App.tsx`, `src/index.css` | `.cursor/rules/frontend-rules.mdc` |
+| Adding a feature or checking scope | `.cursor/rules/feature-guide.mdc` |
+| After any change, before handoff | `.cursor/rules/testing.mdc` |

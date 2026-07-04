@@ -1,0 +1,81 @@
+---
+alwaysApply: false
+globs: ["src/App.tsx", "src/index.css", "src/main.tsx"]
+---
+
+# Baby Tracker — Frontend Rules
+
+## Architecture
+
+- `src/App.tsx` is the ENTIRE frontend (~2000 lines). One `App()` function. No sub-components.
+- Do NOT create `src/components/` unless a plan explicitly calls for it.
+- All state lives in `App()`. No Redux, Zustand, or external state library.
+- 4-tab bottom nav: `activeTab: 'log' | 'timeline' | 'dashboards' | 'settings'`
+- Bottom sheets for data entry: `activeSheet: 'bottle' | 'diaper' | 'sleep' | 'activity' | 'weight' | 'edit' | null`
+- Open a sheet: `openAddSheet('bottle')` / `openEditSheet(event)`
+- Known type gap: `'sleep' as any` in `activeSheet` — intentional, do not fix or flag.
+
+## API Calls
+
+Native `fetch()` only. No axios, no react-query. Always relative paths (`/api/...`).
+
+```typescript
+const res = await fetch('/api/events', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+if (res.ok) { showToast('נשמר בהצלחה'); } else { showToast('תקלה בשמירה'); }
+```
+
+Every API handler is `async` and follows this pattern:
+```typescript
+const handleSomething = async () => {
+  setSubmitting(true);
+  try { /* fetch */ } catch { showToast('שגיאה'); } finally { setSubmitting(false); }
+};
+```
+
+## Toast & Confirmations
+
+- `showToast('message')` — 3.5s auto-dismiss. All user feedback goes here.
+- `showUndoToast(eventId, message)` — toast with undo action (4s window, calls DELETE).
+- Never use `alert()` or `window.confirm()`. Use inline Hebrew confirm UI with `pendingDeleteId` state instead.
+
+## TypeScript
+
+- Strict types always. No `any` (except the `sleep as any` known case).
+- All types in `src/types.ts`. Never inline interfaces in `App.tsx`.
+
+## Icons & Animation
+
+- Icons: Lucide React only. Import individually: `import { Moon, Trash2 } from 'lucide-react'`
+- Never use emoji as interactive UI elements.
+- Animation: `import { motion, AnimatePresence } from 'motion/react'` — NOT `framer-motion`.
+
+## CSS
+
+- Tailwind v4. No `tailwind.config.js` — do not create one.
+- Custom classes in `src/index.css` via `@theme` directive.
+- Conditional classes with template literals — no `classnames` library:
+  ```tsx
+  className={`base-classes ${condition ? 'active-classes' : 'inactive-classes'}`}
+  ```
+
+## Hebrew & RTL
+
+- All user-facing strings in Hebrew. Code, comments, console logs in English.
+- Root `<div>` has `dir="rtl"` — don't re-set on children unless overriding for a specific element.
+- Timezone display: `Asia/Jerusalem`. Storage: always UTC.
+- Hebrew typography: `״` (U+05F4) for abbreviations (מ״ל, ק״ג), `׳` (U+05F3) for single quotes.
+
+Common strings:
+| Use | Hebrew |
+|-----|--------|
+| Saved | נשמר בהצלחה |
+| Error saving | תקלה בשמירה |
+| Loading | טוען... |
+| Delete | מחק |
+| Cancel | ביטול |
+| Save | שמור |
+| Error | שגיאה |

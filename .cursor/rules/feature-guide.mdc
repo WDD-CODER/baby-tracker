@@ -1,0 +1,51 @@
+---
+alwaysApply: false
+description: "Read when adding a new feature, new event type, new API route, or new settings field. Also read when unsure where new code belongs, or to check what is already implemented before building."
+---
+
+# Baby Tracker — Feature Guide
+
+## Decision Tree (answer before writing any code)
+
+1. **New event type?** → Add to `EventType` union in `src/types.ts` + payload interface → handler in `server.ts` CRUD → form section in `App.tsx` bottom sheet → rendering in carousel + timeline.
+2. **New API endpoint?** → Add route in `server.ts` with `// ====` section comment. Add DB function in `server/db.ts` if Firestore access needed.
+3. **New UI section?** → Extend the relevant `{activeTab === '...' && (...)}` block in `App.tsx`.
+4. **New settings field?** → Add to `UserSettings` in `src/types.ts` → update `DEFAULT_SETTINGS` in `server/db.ts` → add form field in Settings tab in `App.tsx`.
+5. **New dependency?** → Human must approve if not already in `package.json`. Forbidden without explicit plan approval: Redux, Zustand, axios, react-query, react-router, chart.js, recharts, moment, lodash.
+6. **New TypeScript type?** → `src/types.ts` only. Never inline.
+7. **Touches Firestore?** → `server/db.ts` only. No Firestore in `server.ts` or `src/`.
+8. **New user-facing string?** → Must be Hebrew.
+
+## What's Already Implemented
+
+- Event types: NUTRITION (bottle + breast + top-up), DIAPER, SLEEP, ACTIVITY, WEIGHT, PUMPING, VOMITING
+- Sleep toggle: live timer, location selection, custom start time, 12h warning banner
+- Poll-on-focus: `visibilitychange` listener refreshes open sleep session
+- Full CRUD with soft-delete (`deletedAt` field) + undo toast (4s window)
+- Two-parent session auth (express-session + bcryptjs, 30-day cookie)
+- Dashboard stats: nutrition, sleep, diapers, weight (CSS bar charts, 7/14/30 day)
+- Excel export — 7 bilingual sheets (Summary, Feeds, Sleep, Diapers, Weight, Pumping, Vomiting)
+- Custom activities management
+- Empty states on all tabs
+- Hebrew login screen; session identity from cookie (no localStorage)
+- PWA: service worker + manifest via vite-plugin-pwa
+- Firebase Admin SDK (server-side), Firestore rules locked down
+- Firestore deploy config: `firebase.json` + `.firebaserc`
+
+## Not Yet Implemented (known gaps)
+
+- Heebo font + design tokens (Wave 3 — GAP-10)
+- Semantic icon system (Wave 3 — GAP-04)
+- Weight display in kg (Wave 3 — GAP-13)
+- Interactive dashboard charts (Wave 5)
+- Export date-range picker UI (GAP-11 — status unclear)
+- Gemini AI integration (installed, not wired)
+- Multiple babies / baby profiles
+- Push notifications
+
+## File Edit Rules
+
+- `src/types.ts` — change types here first, then update all consumers.
+- `server/db.ts` — pure data layer. No HTTP req/res logic here.
+- `server.ts` — pure HTTP layer. No Firestore calls directly.
+- `src/App.tsx` — all frontend. No component splitting unless a plan says so.

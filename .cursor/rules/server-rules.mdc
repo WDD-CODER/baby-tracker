@@ -1,0 +1,40 @@
+---
+alwaysApply: false
+globs: ["server.ts"]
+---
+
+# Baby Tracker — Server Rules
+
+- All API routes live in `server.ts` at root level.
+- Label route groups with `// ====` section comments. Match the existing pattern.
+- Port hardcoded to `3000`. Do not change.
+- Dev mode: Vite middleware serves the SPA. Production: `dist/` static files.
+- ID generation: `'event_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)` — no UUID library needed.
+- Sleep duration: always `Math.max(1, Math.round(...))` — minimum 1 minute.
+- Timezone helpers `toIsraelLocalDateStr()` and `toIsraelLocalTimeStr()` are at the top of the file — use them for any date display logic, don't reinvent.
+- Never query Firestore directly from `server.ts` — always call exported functions from `server/db.ts`.
+
+## Auth
+
+- Session middleware with `SESSION_SECRET` from `.env`. `httpOnly` cookie, `secure` in production.
+- All `/api/*` routes after the login handler are gated by `req.session.parentType`.
+- `activeParent` / `loggedBy` always come from `req.session.parentType` — never trust the request body for identity.
+- `POST /api/login` validates against `PARENT_A_*` / `PARENT_B_*` env vars via `bcryptjs.compare()`.
+- `POST /api/logout` destroys session and clears cookie.
+
+## API Shape Reference
+
+Routes follow REST conventions. Error response: `{ error: 'message' }` with correct HTTP status. Success: JSON body.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/settings` | Returns UserSettings + `currentParent` |
+| `PUT` | `/api/settings` | Partial merge |
+| `GET` | `/api/events` | `?limit=N&cursor=offset&type=EVENTTYPE` |
+| `POST` | `/api/events` | Create event |
+| `PUT` | `/api/events/:id` | Update event |
+| `DELETE` | `/api/events/:id` | Soft-delete (sets `deletedAt`) |
+| `GET` | `/api/sleep/open` | Current open session or `null` |
+| `POST` | `/api/sleep/toggle` | Toggle sleep state |
+| `GET` | `/api/stats/*` | `?from=ISO&to=ISO` (nutrition, sleep, diapers, weight) |
+| `GET` | `/api/export/xlsx` | `?from=DATE&to=DATE` binary download |

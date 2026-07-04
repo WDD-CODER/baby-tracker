@@ -1,0 +1,82 @@
+---
+alwaysApply: true
+---
+
+# Baby Tracker — Core Rules
+
+## Roles
+
+| Agent | Role |
+|-------|------|
+| **Cursor** (Contractor) | Executes milestones. Writes code. One milestone at a time. |
+| **Claude Code** (Reviewer) | Validates output. Files bugs. Never silently fixes code. |
+| **Human** | Approves milestones. Makes stack decisions. |
+
+Never skip human approval between milestones.
+
+## Plan from Claude.ai → Cursor (no per-milestone prompts)
+
+Claude.ai writes plans; Cursor saves and executes. **Do not ask the human to paste milestone prompts.**
+
+| Human says | You do |
+|------------|--------|
+| **`/plan-intake`** + full plan text | Invoke `baby-tracker-plan-workflow` skill → save to `plans/` → execute **Milestone 1 only** → hand off → STOP |
+| **`/continue-plan`** or **`/next-milestone`** | Same skill → execute **next** milestone on active plan → hand off → STOP |
+| **`start milestone N`** | Same skill → execute **only** milestone N (if prior milestones done per handoff) |
+
+After every milestone: invoke `baby-tracker-handoff`, then **STOP and wait**. End your message with:
+1. A **👀 Visual check** block (see below) — always, in plain language for the human.
+2. *Reply `/continue-plan` after Claude Code review to start the next milestone.* Never self-chain.
+
+## 👀 Visual check (mandatory — every milestone)
+
+The human must get a **short, concrete thing to look at** in the app (or an explicit "nothing visible yet" note). Do not only say "font installed" or "types added" — say **where to look** and **what should be different**.
+
+**Format in your final reply (always include this block):**
+
+```markdown
+### 👀 Visual check
+1. Run `npm run dev` → open [URL/tab/screen].
+2. Look at **[specific Hebrew label, button, or UI element]**.
+3. **Before:** [what they would have seen — e.g. system font, no icon, grams].
+4. **Now:** [what they should see — e.g. rounder Heebo letters, sad face on short nap, "3.5 ק"ג"].
+```
+
+**Rules:**
+- Name a **real UI element** from this app when the change is visible (tab name, button label, timeline row, settings field).
+- For **CSS/font** changes: one Hebrew string on screen + optional DevTools hint (`Computed → font-family` includes `Heebo`).
+- For **types-only / no UI** milestones: say so explicitly — *"Nothing new on screen yet; M4 will show tier icons on Timeline."* — and state that lint pass is the only check.
+- Keep it to **≤4 numbered steps**. No jargon.
+
+Also include the same `### Visual check` section in AgentMemory + `sessions/` handoff body.
+
+**Milestone execution (always, without repeating in the user message):**
+- Read the active plan in `plans/`
+- Touch only files scoped to that milestone
+- Do NOT mark milestones complete in the plan file
+- Verify: milestone verify command, or default `npm run lint`
+- 3-strike rule on scoped files → `bugs/bug_<id>.md` then stop
+
+## Mandatory Workflow
+
+- **ONE milestone per session.** Complete it, hand off, STOP. No self-chaining to the next.
+- **3-strike rule:** Max 3 attempts to fix a failing compile/lint error in scoped files. On 3rd failure: file `bugs/bug_<id>.md`, stop. No 4th attempt.
+- **Never hardcode secrets.** `.env` only. Never commit `.env` or any credential JSON.
+- **Commits are human-only.** Only run `git commit` when the human explicitly asks.
+- **Stack authority:** Check `_shared/agent-guide.md` section 5 constraints before any tech decision. Forbidden without plan approval: Redux, Zustand, axios, react-query, react-router, chart.js, recharts, moment, lodash.
+
+## Mandatory Handoff (no exception)
+
+When any milestone ends — success, partial, review stop, or 3-strike — invoke the `baby-tracker-handoff` skill (`.claude/skills/baby-tracker-handoff/SKILL.md`) before stopping:
+
+1. **Success / review stop:** `memory_save` to AgentMemory (`project: baby-tracker`). Fallback: append to `sessions/YYYY-MM-DD.md`. Include: plan + milestone number, files touched, what changed, **visual check** (where to look + before/after), lint/build result, what's next.
+2. **3-strike block:** Write `bugs/bug_<id>.md`. Write pointer to AgentMemory (fallback: session file). Stop.
+3. **Post-commit:** After a human-requested `git commit` succeeds, run post-commit handoff — hash, message, files, behavioral summary → AgentMemory (fallback: session file).
+
+## Architecture (non-negotiable)
+
+- Frontend: `src/App.tsx` only. No `components/` dir unless a plan explicitly calls for it.
+- Types: `src/types.ts` only. Never inline types in `App.tsx` or `server.ts`.
+- DB: `server/db.ts` only. No Firestore calls in `server.ts` or `src/`.
+- Routes: `server.ts` only.
+- Hebrew UI strings everywhere. English code, comments, console logs.

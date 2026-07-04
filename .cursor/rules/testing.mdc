@@ -1,0 +1,46 @@
+---
+alwaysApply: false
+description: "Read after making any code change, before handing off or asking for a commit. Manual testing protocol — no automated test framework exists in this project."
+---
+
+# Baby Tracker — Testing Protocol
+
+No automated tests. Manual verification required for every change.
+
+## 👀 Visual check (Contractor → Human)
+
+After every milestone, Cursor **must** tell the human exactly what to look at in the running app — not just what code changed.
+
+- **Visible change:** tab + Hebrew label/element + before vs after (e.g. font shape, new icon, kg instead of grams).
+- **Not visible yet** (e.g. `types.ts` only): say explicitly; name which later milestone will show it.
+- Optional DevTools hint for CSS/font (Computed → `font-family`).
+
+This block appears in the Cursor final message **and** in the handoff (`sessions/` + AgentMemory).
+
+## Required checks (every change)
+
+1. `npm run lint` — must pass with zero errors
+2. `npm run build` — must complete without errors
+3. `npm run dev` — server starts on port 3000
+
+## Golden path (run at 375px width)
+
+- Add bottle feeding (120ml offered, 110ml consumed) → appears in carousel
+- Switch to Timeline → event shows up
+- Add sleep start (location: CRIB) → sleep timer starts on Sleep button
+- End sleep (toggle again)
+- Dashboards → today appears in nutrition + sleep stats
+- Edit the bottle feeding from carousel → changes save
+- Delete an event from timeline → Hebrew confirm modal appears → confirm → event gone
+- Delete an event → cancel → event stays
+- Undo toast appears after create/log actions (no regression)
+
+## Auth smoke test (if touching server.ts or auth flow)
+
+- Logged out → any action shows login screen
+- Login as Parent A → app loads, parent name badge shows
+- Logout → login screen returns
+
+## After touching export
+
+- Settings → Export → set date range → download → file opens in Excel without errors

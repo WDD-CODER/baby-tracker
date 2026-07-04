@@ -1,0 +1,64 @@
+---
+alwaysApply: false
+globs: ["server/db.ts", "src/types.ts"]
+---
+
+# Baby Tracker — Data & DB Rules
+
+## Core Types (src/types.ts — source of truth)
+
+```typescript
+type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT' | 'PUMPING' | 'VOMITING';
+type ParentType = 'PARENT_A' | 'PARENT_B';
+
+interface BabyEvent {
+  id: string;           // 'event_{Date.now()}_{randomStr}'
+  timestamp: string;    // ISO 8601 — always UTC
+  eventType: EventType;
+  loggedBy: ParentType;
+  notes?: string;
+  deletedAt?: string;   // soft-delete — set by deleteEvent(), filtered by isActiveEvent()
+  // payload fields: nutrition?, diaper?, sleep?, activity?, weight?, pumping?, vomiting?
+}
+
+interface UserSettings {
+  userId: string;       // always 'shared-household' — hardcoded
+  parentAName: string;
+  parentBName: string;
+  defaultBottleType: 'EXPRESSED_MILK' | 'FORMULA';
+  customActivities: string[];
+}
+```
+
+All new types and interfaces go in `src/types.ts`. Never inline in `db.ts` or `App.tsx`.
+
+## Firestore Structure
+
+```
+/households/shared-household            ← UserSettings doc
+/households/shared-household/events/    ← BabyEvent docs
+```
+
+One household. `householdId = 'shared-household'` hardcoded at line ~41. No multi-tenancy.
+
+## Timestamp Convention
+
+- Store: ISO 8601 UTC (`new Date().toISOString()`)
+- Display: `Asia/Jerusalem` via `Intl.DateTimeFormat` — helpers are in `server.ts`
+
+## Sleep State Machine
+
+- **Open session:** `sleep.endAt === null` (timer running)
+- **Closed session:** `sleep.endAt` is an ISO string, `sleep.durationMinutes` is set
+- Only ONE open sleep session at a time. `POST /api/sleep/toggle` enforces this.
+
+## DB Layer Rules
+
+- All Firestore operations: `async/await` + `try/catch`. No exceptions.
+- `saveEvent()` uses `set()` with full document — upsert semantics. Use this for create and update.
+- `deleteEvent()` uses `update({ deletedAt })` intentionally — stamps only the soft-delete field without overwriting the document. Do not change this to `set()`.
+- `isActiveEvent()` filters out soft-deleted events — always use it when returning event lists.
+- `getAllEvents()` orders by `timestamp desc`. Has fallback if composite index is missing.
+- `getOpenSleepSession()` filters in-memory after fetching SLEEP events — no compound index needed.
+- `householdDoc` reference is module-level — not recreated per call.
+- Never call Firestore SDK directly from `server.ts` or `src/` — always use exported functions from this file.
