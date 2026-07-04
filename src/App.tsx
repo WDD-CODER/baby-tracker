@@ -32,7 +32,7 @@ import {
   PlusCircle,
   LogOut,
 } from 'lucide-react';
-import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType } from './types';
+import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType, PooColorType, QualityTier, TIER_MAP, classifyNutrition, classifySleep, classifyDiaper, classifyWeight } from './types';
 import { InstallAppButton } from './components/InstallAppButton';
 
 const DiaperIcon = ({ className = "w-5 h-5", strokeWidth = 2 }: { className?: string, strokeWidth?: number }) => (
@@ -53,6 +53,232 @@ const DiaperIcon = ({ className = "w-5 h-5", strokeWidth = 2 }: { className?: st
     <path d="M17 5v3" />
   </svg>
 );
+
+// === Wave 3 type glyphs (GAP-04b) — defined in plan; legend uses app emojis (DiaperIcon, 🍼, etc.) ===
+
+type TypeGlyphProps = { className?: string };
+
+const POO_GLYPH_FILL: Record<PooColorType, string> = {
+  YELLOW_MUSTARD: '#E8B923',
+  GREEN: '#2D8A4E',
+  BROWN: '#8B5A2B',
+};
+
+const IconBreast = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M8 4c0 3.5 1.8 6 4 6s4-2.5 4-6c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2z" opacity="0.35" />
+    <path d="M12 10c-3.3 0-6 2.7-6 6v4h12v-4c0-3.3-2.7-6-6-6z" />
+    <circle cx="10" cy="15" r="1.2" fill="currentColor" opacity="0.5" />
+  </svg>
+);
+
+const IconBottleExpressed = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M9 3h6v3H9z" />
+    <path d="M10 6h4v2h-4z" />
+    <path d="M8 8h8v12a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V8z" />
+    <path d="M9 12c1 1.5 2 2 3 2s2-.5 3-2" stroke="#93C5FD" fill="none" />
+    <circle cx="12" cy="16" r="1.5" fill="#93C5FD" stroke="none" />
+  </svg>
+);
+
+const IconBottleFormula = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M9 3h6v3H9z" />
+    <rect x="10" y="4" width="4" height="1.5" rx="0.5" fill="currentColor" stroke="none" />
+    <path d="M8 8h8v12a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V8z" />
+    <path d="M10 11h4M10 14h4M10 17h4" />
+  </svg>
+);
+
+const IconPoo = ({ fill = POO_GLYPH_FILL.YELLOW_MUSTARD, className = 'w-5 h-5' }: TypeGlyphProps & { fill?: string }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path
+      d="M12 3c-2 0-3.5 1.2-3.5 3 0 1 .4 1.8 1 2.4C8 9.5 6.5 11 6.5 13c0 2.5 2.5 5 5.5 5s5.5-2.5 5.5-5c0-2-1.5-3.5-2.5-4.6.6-.6 1-1.4 1-2.4 0-1.8-1.5-3-3.5-3z"
+      fill={fill}
+    />
+  </svg>
+);
+
+const IconPeeDrop = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path
+      d="M12 2.5c0 0-5.5 7.2-5.5 11a5.5 5.5 0 1 0 11 0c0-3.8-5.5-11-5.5-11z"
+      fill="#60A5FA"
+      stroke="#3B82F6"
+      strokeWidth="1"
+    />
+  </svg>
+);
+
+const IconWeightScale = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M4 18h16" />
+    <path d="M6 18V9a2 2 0 0 1 2-2h1" />
+    <path d="M18 18V9a2 2 0 0 0-2-2h-1" />
+    <circle cx="12" cy="8" r="3" />
+    <path d="M12 5V2" />
+    <path d="M10 2h4" />
+    <path d="M15 6l2-2M15 4l2 2" stroke="#46A758" />
+  </svg>
+);
+
+const IconSleepMoon = ({ className = 'w-5 h-5' }: TypeGlyphProps) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a6.5 6.5 0 1 0 11.5 11.5z" />
+  </svg>
+);
+
+void [IconBreast, IconBottleExpressed, IconBottleFormula, IconPoo, IconPeeDrop, IconWeightScale, IconSleepMoon];
+
+// === Wave 3 tier faces (GAP-04c) — Design Foundation §4.1 ===
+
+const IconTierFace = ({ tier, className = 'w-6 h-6' }: { tier: QualityTier; className?: string }) => {
+  const color = TIER_MAP[tier].color;
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={{ color }} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.2" />
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      {tier === 'BAD' && (
+        <>
+          <path d="M8 10c0-1 1-2 2-2M14 8c1 0 2 1 2 2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M8.5 16c1.5-2 5.5-2 7 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="9" cy="14" r="1" fill="currentColor" />
+        </>
+      )}
+      {tier === 'OKAY' && (
+        <>
+          <circle cx="9" cy="10" r="1.2" fill="currentColor" />
+          <circle cx="15" cy="10" r="1.2" fill="currentColor" />
+          <path d="M9 15h6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      )}
+      {tier === 'GOOD' && (
+        <>
+          <path d="M8 10c0.5-0.5 1.5-0.5 2 0M14 10c0.5-0.5 1.5-0.5 2 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M8.5 14.5c1.5 1.5 5.5 1.5 7 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      )}
+      {tier === 'GREAT' && (
+        <>
+          <path d="M8 9c0.5 1 1.5 1.5 2.5 1M13.5 10c1-0.5 2-1 2.5-2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M7.5 14c2 2.5 7 2.5 9 0" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+          <path d="M6 7l1 1M18 7l-1 1" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+};
+
+const getPreviousWeightGrams = (allEvents: BabyEvent[], current: BabyEvent): number | null => {
+  const currentTime = new Date(current.timestamp).getTime();
+  const previous = allEvents
+    .filter(
+      (ev) =>
+        ev.eventType === 'WEIGHT' &&
+        ev.weight &&
+        ev.id !== current.id &&
+        new Date(ev.timestamp).getTime() < currentTime
+    )
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+  return previous?.weight?.weightGrams ?? null;
+};
+
+const getEventQualityTier = (event: BabyEvent, allEvents: BabyEvent[]): QualityTier | null => {
+  if (event.eventType === 'NUTRITION' && event.nutrition) {
+    return classifyNutrition(event.nutrition);
+  }
+  if (event.eventType === 'SLEEP' && event.sleep?.endAt) {
+    return classifySleep(event.sleep.durationMinutes ?? 0);
+  }
+  if (event.eventType === 'DIAPER' && event.diaper) {
+    return classifyDiaper(event.diaper);
+  }
+  if (event.eventType === 'WEIGHT' && event.weight) {
+    return classifyWeight(event.weight.weightGrams, getPreviousWeightGrams(allEvents, event));
+  }
+  return null;
+};
+
+/** Tier face only where we have a real measurement — not sleep (emoji already shows cycle), not unmeasured weight, etc. */
+const shouldShowTierFace = (event: BabyEvent, tier: QualityTier | null, allEvents: BabyEvent[]): boolean => {
+  if (!tier) return false;
+
+  if (event.eventType === 'SLEEP') {
+    return false;
+  }
+
+  if (event.eventType === 'WEIGHT') {
+    return getPreviousWeightGrams(allEvents, event) !== null;
+  }
+
+  if (event.eventType === 'NUTRITION' && event.nutrition?.feedType === 'BOTTLE') {
+    return (event.nutrition.amountOfferedMl ?? 0) > 0;
+  }
+
+  if (event.eventType === 'NUTRITION' && event.nutrition?.feedType === 'BREAST') {
+    return (event.nutrition.durationMinutes ?? 0) > 0;
+  }
+
+  if (event.eventType === 'DIAPER') {
+    return false;
+  }
+
+  return false;
+};
+
+const hasEventMemo = (event: BabyEvent): boolean => Boolean(event.notes?.trim());
+
+const QUALITY_TIER_ORDER: QualityTier[] = ['BAD', 'OKAY', 'GOOD', 'GREAT'];
+
+const EVENT_TYPE_LEGEND: { label: string; node: React.ReactNode }[] = [
+  { label: 'הנקה ישירה', node: <span className="text-2xl leading-none">🤱</span> },
+  { label: 'בקבוק (חלב שאוב / תמ״ל)', node: <span className="text-2xl leading-none">🍼</span> },
+  { label: 'חיתול', node: <DiaperIcon className="w-6 h-6 text-teal-400" strokeWidth={2.5} /> },
+  { label: 'חיתול — שתן בלבד', node: <span className="text-2xl leading-none">💦</span> },
+  { label: 'חיתול — צואה בלבד', node: <span className="text-2xl leading-none">💩</span> },
+  { label: 'חיתול — שתן וצואה', node: <span className="text-xl leading-none">💦💩</span> },
+  { label: 'שינה — ישן עכשיו', node: <span className="text-2xl leading-none">💤</span> },
+  { label: 'שינה — מחזור קצר', node: <span className="text-2xl leading-none">❌</span> },
+  { label: 'שינה — מחזור טוב', node: <span className="text-2xl leading-none">👍</span> },
+  { label: 'שינה — מחזור מצוין', node: <span className="text-2xl leading-none">🌟</span> },
+  { label: 'שקילת משקל', node: <span className="text-2xl leading-none">⚖️</span> },
+  { label: 'פעילות', node: <span className="text-2xl leading-none">🎨</span> },
+  { label: 'שאיבת חלב', node: <span className="text-xl leading-none">🍼🤱</span> },
+  { label: 'פליטה / הקאה', node: <span className="text-2xl leading-none">🤮</span> },
+  {
+    label: 'יש הערה — כדאי לקרוא',
+    node: (
+      <span className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 text-xs font-black flex items-center justify-center shrink-0">
+        !
+      </span>
+    ),
+  },
+];
+
+const renderDashboardTierBadge = (event: BabyEvent, allEvents: BabyEvent[]) => {
+  const tier = getEventQualityTier(event, allEvents);
+  if (!shouldShowTierFace(event, tier, allEvents) || !tier) return null;
+  return (
+    <div
+      className="w-6 h-6 rounded-lg flex items-center justify-center bg-slate-950 border shrink-0"
+      style={{ borderColor: TIER_MAP[tier].color }}
+      title={TIER_MAP[tier].hebrewLabel}
+    >
+      <IconTierFace tier={tier} className="w-4 h-4" />
+    </div>
+  );
+};
+
+const getDashboardTierStyle = (event: BabyEvent, allEvents: BabyEvent[]): React.CSSProperties | undefined => {
+  const tier = getEventQualityTier(event, allEvents);
+  if (!shouldShowTierFace(event, tier, allEvents) || !tier) return undefined;
+  return {
+    borderRightWidth: 4,
+    borderRightColor: TIER_MAP[tier].color,
+    backgroundColor: `color-mix(in srgb, ${TIER_MAP[tier].color} 10%, transparent)`,
+  };
+};
 
 const getSleepCycleAnalysis = (durationMinutes: number | undefined) => {
   if (durationMinutes === undefined) {
@@ -102,37 +328,23 @@ const getSleepCycleAnalysis = (durationMinutes: number | undefined) => {
 export default function App() {
   // App state
   const [activeTab, setActiveTab] = useState<'log' | 'timeline' | 'dashboards' | 'settings'>('log');
+  const [settingsScreen, setSettingsScreen] = useState<'main' | 'legend'>('main');
   const [events, setEvents] = useState<BabyEvent[]>([]);
   const lastLoggedTimestamps = useRef<{ [key: string]: number }>({});
   const [carouselIndex, setCarouselIndex] = useState(0);
 
   const getLocalDatetimeString = (date = new Date()) => {
-    const tzOffset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+    // Format as Israel local time for datetime-local inputs
+    return date.toLocaleString('sv-SE', { timeZone: 'Asia/Jerusalem' }).replace(' ', 'T').slice(0, 16);
   };
 
   const checkAndRegisterDoubleSubmit = (type: string): boolean => {
     const now = Date.now();
-    
-    // Check local ref first (very fast, covers rapid clicks)
     const lastRefTime = lastLoggedTimestamps.current[type] || 0;
     if (now - lastRefTime < 10000) {
       console.log(`Canceled duplicate action request to prevent double-click error (type: ${type})`);
       return true;
     }
-
-    // Check state events array
-    const matching = events.filter(e => e.eventType === type);
-    if (matching.length > 0) {
-      const times = matching.map(e => new Date(e.timestamp).getTime());
-      const maxTime = Math.max(...times);
-      if (now - maxTime < 10000) {
-        console.log(`Canceled duplicate action request to prevent double-click error (type: ${type})`);
-        return true;
-      }
-    }
-
-    // Update local ref
     lastLoggedTimestamps.current[type] = now;
     return false;
   };
@@ -239,6 +451,8 @@ export default function App() {
     return new Date().toISOString().split('T')[0];
   });
   const [clearType, setClearType] = useState<'all' | 'cutoff' | null>(null);
+  const [pendingClearAll, setPendingClearAll] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
 
   // Export states
   const [exportFromDate, setExportFromDate] = useState<string>(() => {
@@ -285,11 +499,7 @@ export default function App() {
       eventType: 'NUTRITION',
       loggedBy: activeParent,
       notes: '',
-      quickRecorded: true,
-      nutrition: {
-        feedType: 'BREAST',
-        spitUp: 'NONE'
-      }
+      quickRecorded: true
     };
 
     try {
@@ -301,7 +511,7 @@ export default function App() {
 
       if (res.ok) {
         const data = await res.json();
-        showUndoToast(data.id, 'הנקה מהירה נרשמה 🤱');
+        showUndoToast(data.id, 'ארוחה מהירה נרשמה 🍼');
         fetchEvents();
       } else {
         showToast('תקלה ברישום ארוחה מהירה');
@@ -333,11 +543,7 @@ export default function App() {
       notes: '',
       quickRecorded: true,
       diaper: {
-        contains,
-        peeVolume: contains !== 'POO' ? 'LIGHT' : undefined,
-        pooAmount: contains !== 'PEE' ? 'MEDIUM' : undefined,
-        pooColor: contains !== 'PEE' ? 'YELLOW_MUSTARD' : undefined,
-        pooTexture: contains !== 'PEE' ? 'SEEDY' : undefined
+        contains
       }
     };
 
@@ -375,7 +581,9 @@ export default function App() {
     else if (size === 'MEDIUM') sizeLabel = 'פליטה בינונית 💦';
     else sizeLabel = 'הקאה גדולה ⚠️';
 
+    const id = 'event_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     const payload: Partial<BabyEvent> = {
+      id,
       timestamp,
       eventType: 'VOMITING',
       loggedBy: activeParent,
@@ -526,11 +734,18 @@ export default function App() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== 'settings') {
+      setSettingsScreen('main');
+    }
+  }, [activeTab]);
+
   // Refresh open sleep session when tab regains focus (GAP-08)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isAuthenticated) {
         checkOpenSleepSession();
+        fetchEvents();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -541,6 +756,10 @@ export default function App() {
   useEffect(() => {
     setDismissedLongSleepWarning(false);
   }, [openSleepSession?.id]);
+
+  useEffect(() => {
+    return () => { clearTimeout(toastTimeoutRef.current ?? undefined); };
+  }, []);
 
   // Sync sleep session timer
   useEffect(() => {
@@ -811,6 +1030,8 @@ export default function App() {
   };
 
   const getBabyDayEvents = (allEvents: BabyEvent[]) => {
+    // Baby day starts at 06:00 Israel time. Events 00:00–05:59 belong to the previous baby day.
+    // This is intentional and differs from the calendar-day boundary used in getTodayNutritionSummary.
     const now = new Date();
     const startOfTodayBabyDay = new Date(now);
     startOfTodayBabyDay.setHours(6, 0, 0, 0);
@@ -1004,7 +1225,7 @@ export default function App() {
           start,
           end,
           duration,
-          location: current.sleep?.startLocation || 'CRIB'
+          location: current.sleep?.startLocation
         });
 
         if (i < dayEvents.length - 1) {
@@ -1238,6 +1459,8 @@ export default function App() {
     } finally {
       setSubmitting(false);
       setClearType(null);
+      setPendingClearAll(false);
+      setClearConfirmText('');
     }
   };
 
@@ -1287,7 +1510,6 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          startLocation: 'CRIB',
           quickRecorded: true
         })
       });
@@ -1349,7 +1571,10 @@ export default function App() {
         breastSide: bottleFeedType === 'BREAST' ? breastSide : undefined,
         durationMinutes: bottleFeedType === 'BREAST' ? breastDuration : undefined,
         spitUp: spitUp !== 'NONE' ? spitUp : undefined,
-        swallowingNoises: swallowingNoises
+        swallowingNoises: swallowingNoises,
+        topUp: bottleFeedType === 'BREAST' && showTopUp && topUpConsumedMl > 0
+          ? { liquidType: topUpLiquidType, consumedMl: topUpConsumedMl }
+          : undefined
       };
     } else if (activeSheet === 'diaper') {
       payload.eventType = 'DIAPER';
@@ -1470,8 +1695,15 @@ export default function App() {
          rightAmountMl: pumpRightAmount
        };
     } else if (editingEvent.eventType === 'SLEEP' && editingEvent.sleep) {
+       const originalEndAt = editingEvent?.sleep?.endAt ?? null;
+       if (originalEndAt && !customSleepEndAt) {
+         showToast('שדה סיום שינה לא יכול להיות ריק');
+         return;
+       }
        const startAtIso = customSleepStartAt ? new Date(customSleepStartAt).toISOString() : editingEvent.sleep.startAt;
-       const endAtIso = customSleepEndAt ? new Date(customSleepEndAt).toISOString() : null;
+       const endAtIso = customSleepEndAt
+         ? new Date(customSleepEndAt).toISOString()
+         : originalEndAt;
        payload.sleep = {
          startAt: startAtIso,
          endAt: endAtIso,
@@ -1811,7 +2043,6 @@ export default function App() {
     return { offered, consumed, feedsCount };
   };
 
-  const todaySummary = getTodayNutritionSummary();
   const babyDayEvents = getBabyDayEvents(events);
   const todayDiapers = babyDayEvents.filter(e => e.eventType === 'DIAPER').reverse();
   const todayBottlesCount = babyDayEvents.filter(e => e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BOTTLE').length;
@@ -1838,6 +2069,16 @@ export default function App() {
   };
 
   const todaySleepStats = getTodaySleepStats();
+
+  const rangeBottleCount = nutritionStats.reduce((sum, day) => sum + (day.bottleCount ?? 0), 0);
+  const rangeBreastCount = nutritionStats.reduce((sum, day) => sum + (day.breastCount ?? 0), 0);
+  const rangeSleepMinutes = sleepStats.reduce((sum, day) => sum + (day.totalMinutes ?? 0), 0);
+  const rangeSleepHrs = Math.floor(rangeSleepMinutes / 60);
+  const rangeSleepMins = rangeSleepMinutes % 60;
+  const rangeSleepCount = sleepStats.reduce((sum, day) => sum + (day.sessionCount ?? 0), 0);
+  const rangePeeCount = diaperStats.reduce((sum, day) => sum + (day.pee ?? 0), 0);
+  const rangePooCount = diaperStats.reduce((sum, day) => sum + (day.poo ?? 0), 0);
+  const rangeBothCount = diaperStats.reduce((sum, day) => sum + (day.both ?? 0), 0);
 
   const lastWakeUp = getLastWakeUpTime();
   const awakeDiffMs = lastWakeUp ? (currentTime - lastWakeUp) : 0;
@@ -1884,10 +2125,9 @@ export default function App() {
     return "bg-slate-950 text-slate-100";
   };
 
-  const isLongOpenSleep = openSleepSession ? (() => {
-    const start = new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp).getTime();
-    return Date.now() - start > 12 * 60 * 60 * 1000;
-  })() : false;
+  const isLongOpenSleep = openSleepSession
+    ? currentTime - new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp).getTime() > 12 * 60 * 60 * 1000
+    : false;
 
   if (!authChecked) {
     return (
@@ -2200,11 +2440,12 @@ export default function App() {
             }
 
             const durationText = dur ? `${Math.floor(dur / 60)}ש׳ ${dur % 60}ד׳` : 'ישן כעת';
-            details = `מיקום: ${
-              activeEvent.sleep.startLocation === 'CRIB' ? 'עריסה' : 
-              activeEvent.sleep.startLocation === 'HANDS' ? 'על הידיים' : 
-              activeEvent.sleep.startLocation === 'CARRIER' ? 'מנשא' : 'עגלה'
-            } • משך: ${durationText}`;
+            const locationStr = activeEvent.sleep.startLocation
+              ? (activeEvent.sleep.startLocation === 'CRIB' ? 'עריסה' :
+                 activeEvent.sleep.startLocation === 'HANDS' ? 'על הידיים' :
+                 activeEvent.sleep.startLocation === 'CARRIER' ? 'מנשא' : 'עגלה')
+              : null;
+            details = `${locationStr ? `מיקום: ${locationStr} • ` : ''}משך: ${durationText}`;
           } else if (activeEvent.eventType === 'ACTIVITY' && activeEvent.activity) {
             icon = '🎨';
             badgeColor = 'bg-amber-500 text-white';
@@ -2288,7 +2529,17 @@ export default function App() {
                     className="w-[12%] h-[110px] bg-slate-950/40 border border-slate-850 rounded-2xl opacity-25 hover:opacity-50 transition-all flex flex-col items-center justify-center gap-1 select-none text-xs shrink-0 cursor-pointer overflow-hidden"
                   >
                     <span className="text-sm inline-flex items-center justify-center">
-                      {babyDayEvents[safeIndex - 1].eventType === 'NUTRITION' ? '🍼' : babyDayEvents[safeIndex - 1].eventType === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" /> : '💤'}
+                      {(() => {
+                          const t = babyDayEvents[safeIndex - 1].eventType;
+                          return t === 'NUTRITION' ? '🍼'
+                            : t === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" />
+                            : t === 'SLEEP' ? '💤'
+                            : t === 'ACTIVITY' ? <Activity size={14} />
+                            : t === 'WEIGHT' ? <Scale size={14} />
+                            : t === 'PUMPING' ? '🥛'
+                            : t === 'VOMITING' ? '🤢'
+                            : '•';
+                        })()}
                     </span>
                     <span className="text-[8px] text-slate-500 font-mono font-bold leading-none">
                       {getHeberwTimeStr(babyDayEvents[safeIndex - 1].timestamp)}
@@ -2369,7 +2620,17 @@ export default function App() {
                     className="w-[12%] h-[110px] bg-slate-950/40 border border-slate-850 rounded-2xl opacity-25 hover:opacity-50 transition-all flex flex-col items-center justify-center gap-1 select-none text-xs shrink-0 cursor-pointer overflow-hidden"
                   >
                     <span className="text-sm inline-flex items-center justify-center">
-                      {babyDayEvents[safeIndex + 1].eventType === 'NUTRITION' ? '🍼' : babyDayEvents[safeIndex + 1].eventType === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" /> : '💤'}
+                      {(() => {
+                          const t = babyDayEvents[safeIndex + 1].eventType;
+                          return t === 'NUTRITION' ? '🍼'
+                            : t === 'DIAPER' ? <DiaperIcon className="w-4 h-4 text-teal-400" />
+                            : t === 'SLEEP' ? '💤'
+                            : t === 'ACTIVITY' ? <Activity size={14} />
+                            : t === 'WEIGHT' ? <Scale size={14} />
+                            : t === 'PUMPING' ? '🥛'
+                            : t === 'VOMITING' ? '🤢'
+                            : '•';
+                        })()}
                     </span>
                     <span className="text-[8px] text-slate-500 font-mono font-bold leading-none">
                       {getHeberwTimeStr(babyDayEvents[safeIndex + 1].timestamp)}
@@ -2901,18 +3162,21 @@ export default function App() {
                         </span>
                       </div>
                       <p className="text-xs text-indigo-300 font-bold mt-1">
-                        התחיל ב-{getHeberwTimeStr(openSleepSession.sleep?.startAt || openSleepSession.timestamp)} (מיקום: {
-                          openSleepSession.sleep?.startLocation === 'CRIB' ? 'עריסה / מיטה' :
-                          openSleepSession.sleep?.startLocation === 'HANDS' ? 'על הידיים' :
-                          openSleepSession.sleep?.startLocation === 'CARRIER' ? 'במנשא' : 'בעגלה'
-                        })
+                        התחיל ב-{getHeberwTimeStr(openSleepSession.sleep?.startAt || openSleepSession.timestamp)}
+                        {openSleepSession.sleep?.startLocation && (
+                          <> (מיקום: {
+                            openSleepSession.sleep.startLocation === 'CRIB' ? 'עריסה / מיטה' :
+                            openSleepSession.sleep.startLocation === 'HANDS' ? 'על הידיים' :
+                            openSleepSession.sleep.startLocation === 'CARRIER' ? 'במנשא' : 'בעגלה'
+                          })</>
+                        )}
                       </p>
                       <p className="text-[10px] text-slate-400 mt-2">רשם: {openSleepSession.loggedBy === 'PARENT_A' ? settings.parentAName : settings.parentBName}</p>
                     </div>
                   </div>
                 )}
 
-                {events.map((e) => {
+                {events.filter(e => e.id !== openSleepSession?.id).map((e) => {
                   // Style based on eventType
                   let icon: React.ReactNode = '🍼';
                   let borderClass = 'border-r-4 border-r-blue-500';
@@ -3020,14 +3284,41 @@ export default function App() {
                     details = `דרגה: ${sizeText}`;
                   }
 
+                  const qualityTier = getEventQualityTier(e, events);
+                  const showTierFace = shouldShowTierFace(e, qualityTier, events);
+                  const tierAccentStyle: React.CSSProperties | undefined = showTierFace && qualityTier
+                    ? { borderRightWidth: 4, borderRightColor: TIER_MAP[qualityTier].color }
+                    : undefined;
+
                   return (
                     <div 
                       key={e.id} 
                       onClick={() => openEditSheet(e)}
-                      className={`relative flex items-start gap-4 p-3.5 rounded-3xl border border-slate-850 hover:border-slate-700/80 hover:bg-slate-900 transition-all cursor-pointer select-none text-right ${bgClass} ${borderClass}`}
+                      className={`relative flex items-center gap-4 p-3.5 rounded-3xl border border-slate-850 hover:border-slate-700/80 hover:bg-slate-900 transition-all cursor-pointer select-none text-right ${bgClass} ${showTierFace && qualityTier ? 'border-r-4' : borderClass}`}
+                      style={tierAccentStyle}
                     >
-                      <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 text-lg shadow-sm bg-slate-950 border border-slate-800">
-                        {icon}
+                      <div className="flex items-center justify-center gap-1.5 shrink-0 z-10 min-w-[3.25rem]">
+                        <div className="relative w-10 h-10 rounded-2xl flex items-center justify-center text-lg shadow-sm bg-slate-950 border border-slate-800">
+                          {icon}
+                          {hasEventMemo(e) && (
+                            <span
+                              className="absolute -top-1 -start-1 w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black leading-none flex items-center justify-center border border-amber-200 shadow-sm pointer-events-none"
+                              title="יש הערה — כדאי לקרוא"
+                              aria-label="יש הערה"
+                            >
+                              !
+                            </span>
+                          )}
+                        </div>
+                        {showTierFace && qualityTier && (
+                          <div
+                            className="w-8 h-8 rounded-xl flex items-center justify-center bg-slate-950 border shrink-0"
+                            style={{ borderColor: TIER_MAP[qualityTier].color }}
+                            title={TIER_MAP[qualityTier].hebrewLabel}
+                          >
+                            <IconTierFace tier={qualityTier} className="w-5 h-5" />
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline gap-2">
@@ -3110,7 +3401,7 @@ export default function App() {
                     {expandedDashboards.nutrition ? 'צמצם 📁' : 'הרחב 📂'}
                   </button>
                 </div>
-                <span className="text-[11px] text-blue-400 font-extrabold">🍼 בקבוקים: {todayBottlesCount} | 🤱 הנקות: {todayBreastCount}</span>
+                <span className="text-[11px] text-blue-400 font-extrabold">🍼 בקבוקים: {rangeBottleCount} | 🤱 הנקות: {rangeBreastCount}</span>
               </div>
 
               {!expandedDashboards.nutrition ? (
@@ -3247,10 +3538,20 @@ export default function App() {
                                 );
                               }
 
+                              const nutritionTierStyle = getDashboardTierStyle(e, events);
+
                               return (
-                                <div key={e.id} onClick={() => openEditSheet(e)} className={`p-3 rounded-2xl border ${bgTheme} flex flex-col justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all`}>
-                                  <div className="flex items-start justify-between">
-                                    <span className="text-lg">{icon}</span>
+                                <div
+                                  key={e.id}
+                                  onClick={() => openEditSheet(e)}
+                                  className={`p-3 rounded-2xl border ${bgTheme} flex flex-col justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all${nutritionTierStyle ? ' border-r-4' : ''}`}
+                                  style={nutritionTierStyle}
+                                >
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-lg">{icon}</span>
+                                      {renderDashboardTierBadge(e, events)}
+                                    </div>
                                     <span className="text-[10px] font-extrabold text-slate-400">{timeStr}</span>
                                   </div>
                                   <div className="mt-1.5 text-right">
@@ -3287,7 +3588,7 @@ export default function App() {
                     {expandedDashboards.sleep ? 'צמצם 📁' : 'הרחב 📂'}
                   </button>
                 </div>
-                <span className="text-[11px] text-indigo-400 font-extrabold">💤 {todaySleepStats.hrs}ש׳ {todaySleepStats.mins}ד׳ ({todaySleepStats.count} פעמים)</span>
+                <span className="text-[11px] text-indigo-400 font-extrabold">💤 {rangeSleepHrs}ש׳ {rangeSleepMins}ד׳ ({rangeSleepCount} פעמים)</span>
               </div>
 
               {!expandedDashboards.sleep ? (
@@ -3303,8 +3604,8 @@ export default function App() {
                         if (item.type === 'SLEEP') {
                           sleepCount++;
                           totalMinutes += item.duration;
-                          const loc = item.location || 'CRIB';
-                          locationCounts[loc] = (locationCounts[loc] || 0) + 1;
+                          const loc = item.location;
+                          if (loc) locationCounts[loc] = (locationCounts[loc] || 0) + 1;
                         }
                       });
                     });
@@ -3445,21 +3746,29 @@ export default function App() {
                                   const endStr = item.event.sleep?.endAt 
                                     ? item.end.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
                                     : 'ישן כעת ⏰';
+                                  const sleepTier = classifySleep(item.duration);
+                                  const sleepTierColor = TIER_MAP[sleepTier].color;
+                                  const sleepQualityIcon = getSleepCycleAnalysis(item.duration).icon;
 
                                   return (
                                     <div 
                                       key={itemIdx} 
                                       onClick={() => openEditSheet(item.event)}
-                                      className="bg-gradient-to-r from-indigo-950/80 to-indigo-900/60 border border-indigo-500/30 p-2.5 rounded-xl flex items-center justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all"
+                                      className="border p-2.5 rounded-xl flex items-center justify-between shadow-sm cursor-pointer hover:opacity-85 transition-all border-r-4"
+                                      style={{
+                                        borderRightColor: sleepTierColor,
+                                        borderColor: `color-mix(in srgb, ${sleepTierColor} 35%, transparent)`,
+                                        backgroundColor: `color-mix(in srgb, ${sleepTierColor} 12%, transparent)`,
+                                      }}
                                     >
                                       <div className="flex items-center gap-2">
-                                        <span className="text-base">💤</span>
+                                        <span className="text-base">{sleepQualityIcon}</span>
                                         <div className="text-right">
                                           <span className="text-xs font-black text-indigo-200">
                                             שינה • {item.duration} דקות
                                           </span>
                                           <span className="text-[9px] text-indigo-400 block font-bold leading-none mt-0.5">
-                                            מיקום: {item.location === 'CRIB' ? 'עריסה 🛏️' : item.location === 'HANDS' ? 'על הידיים 🤱' : item.location === 'STROLLER' ? 'עגלה 🛒' : 'מנשא 🎒'}
+                                            {item.location ? `מיקום: ${item.location === 'CRIB' ? 'עריסה 🛏️' : item.location === 'HANDS' ? 'על הידיים 🤱' : item.location === 'STROLLER' ? 'עגלה 🛒' : 'מנשא 🎒'}` : 'מיקום: לא צוין'}
                                           </span>
                                         </div>
                                       </div>
@@ -3514,7 +3823,7 @@ export default function App() {
                     {expandedDashboards.diaper ? 'צמצם 📁' : 'הרחב 📂'}
                   </button>
                 </div>
-                <span className="text-[11px] text-teal-400 font-extrabold">💦 {todayPeeCount} | 💩 {todayPooCount} | 💦💩 {todayBothCount}</span>
+                <span className="text-[11px] text-teal-400 font-extrabold">💦 {rangePeeCount} | 💩 {rangePooCount} | 💦💩 {rangeBothCount}</span>
               </div>
 
               {!expandedDashboards.diaper ? (
@@ -4006,12 +4315,14 @@ export default function App() {
               {!expandedDashboards.weight ? (
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-850 space-y-3 mt-3">
                   {(() => {
-                    const latest = events.find(e => e.eventType === 'WEIGHT' && e.weight);
-                    const earliest = [...events].reverse().find(e => e.eventType === 'WEIGHT' && e.weight);
+                    const latest = weightStats.length > 0 ? weightStats[weightStats.length - 1] : null;
+                    const earliest = weightStats.length > 0 ? weightStats[0] : null;
+                    const latestGrams = latest?.weightGrams ?? null;
+                    const earliestGrams = earliest?.weightGrams ?? null;
 
                     let diffGrams = 0;
-                    if (latest && earliest && latest.id !== earliest.id) {
-                      diffGrams = latest.weight!.weightGrams - earliest.weight!.weightGrams;
+                    if (latestGrams && earliestGrams && latest?.id !== earliest?.id) {
+                      diffGrams = latestGrams - earliestGrams;
                     }
 
                     return (
@@ -4019,8 +4330,8 @@ export default function App() {
                         <div className="grid grid-cols-2 gap-2.5">
                           <div className="bg-pink-950/20 border border-pink-900/20 p-2.5 rounded-xl text-center">
                             <span className="text-[10px] font-bold text-slate-400 block mb-0.5">⚖️ משקל אחרון</span>
-                            {latest ? (
-                              <span className="text-sm font-black text-pink-300">{(latest.weight!.weightGrams / 1000).toFixed(3)} <span className="text-[10px]">ק״ג</span></span>
+                            {latestGrams !== null ? (
+                              <span className="text-sm font-black text-pink-300">{(latestGrams / 1000).toFixed(3)} <span className="text-[10px]">ק״ג</span></span>
                             ) : (
                               <span className="text-xs text-slate-500">אין שקילה</span>
                             )}
@@ -4033,10 +4344,10 @@ export default function App() {
                           </div>
                         </div>
 
-                        {latest?.weight?.percentile && (
+                        {latest?.percentile && (
                           <div className="bg-slate-900 border border-slate-850 p-2.5 rounded-xl flex justify-between items-center text-xs">
                             <span className="text-slate-400 font-bold">אחוזון גדילה נוכחי:</span>
-                            <span className="text-pink-300 font-black">אחוזון {latest.weight.percentile}%</span>
+                            <span className="text-pink-300 font-black">אחוזון {latest.percentile}%</span>
                           </div>
                         )}
 
@@ -4069,10 +4380,18 @@ export default function App() {
                     <p className="text-xs text-slate-500 text-center py-6">עדיין לא הוזנו שקילות רפואיות</p>
                   ) : (
                     <div className="space-y-3">
-                      {weightStats.map((stat, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-850">
+                      {weightStats.map((stat, idx) => {
+                        const weightEvent = events.find((e) => e.id === stat.id);
+                        const tierStyle = weightEvent ? getDashboardTierStyle(weightEvent, events) : undefined;
+                        return (
+                        <div
+                          key={idx}
+                          className={`flex justify-between items-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-850${tierStyle ? ' border-r-4' : ''}`}
+                          style={tierStyle}
+                        >
                           <div className="flex items-center gap-2">
                             <span className="text-pink-400 font-extrabold">⚖️</span>
+                            {weightEvent && renderDashboardTierBadge(weightEvent, events)}
                             <span className="text-xs text-slate-300 font-bold">{stat.date}</span>
                           </div>
                           <div className="text-left">
@@ -4084,7 +4403,8 @@ export default function App() {
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -4095,10 +4415,75 @@ export default function App() {
         )}
 
         {/* TAB 4: APP SETTINGS & PEDIATRICIAN REPORT EXPORT */}
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && settingsScreen === 'legend' && (
+          <div className="flex flex-col gap-4">
+            <button
+              type="button"
+              onClick={() => setSettingsScreen('main')}
+              className="flex items-center gap-2 text-sm font-black text-indigo-300 hover:text-indigo-100 cursor-pointer self-start"
+            >
+              <ChevronRight className="w-4 h-4" />
+              <span>חזרה להגדרות</span>
+            </button>
+
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm space-y-5">
+              <h2 className="text-lg font-black text-slate-100">מקרא — סמלי איכות וסוגים</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                הסמלים למטה זהים לאלה שמופיעים בציר הזמן ובדאשבורדים. פני איכות קטנות מופיעות רק בהזנה (עם נתונים) ובמשקל (עם שקילה קודמת).
+              </p>
+
+              <div>
+                <h3 className="text-sm font-black text-slate-200 mb-3">רמות איכות</h3>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {QUALITY_TIER_ORDER.map((tier) => (
+                    <div
+                      key={tier}
+                      className="flex items-center gap-2.5 p-3 rounded-2xl border bg-slate-950/50 border-r-4"
+                      style={{ borderRightColor: TIER_MAP[tier].color }}
+                    >
+                      <IconTierFace tier={tier} className="w-8 h-8 shrink-0" />
+                      <span className="text-xs font-black text-slate-200">{TIER_MAP[tier].hebrewLabel}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-black text-slate-200 mb-3">סמלי סוג אירוע (כמו באפליקציה)</h3>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {EVENT_TYPE_LEGEND.map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center gap-2.5 p-3 rounded-2xl border border-slate-850 bg-slate-950/50 text-slate-200"
+                    >
+                      <span className="shrink-0">{item.node}</span>
+                      <span className="text-xs font-bold">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'settings' && settingsScreen === 'main' && (
           <div className="flex flex-col gap-4">
 
             <InstallAppButton />
+
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setSettingsScreen('legend')}
+                className="w-full bg-indigo-950/40 hover:bg-indigo-950/60 border border-indigo-500/30 text-indigo-200 font-black py-3 px-4 rounded-2xl flex items-center justify-between gap-2 transition-all text-sm cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-indigo-300" />
+                  <span>מקרא סמלים ואיכות</span>
+                </span>
+                <ChevronLeft className="w-4 h-4 opacity-60" />
+              </button>
+            </section>
 
             <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">
               <button
@@ -4376,7 +4761,7 @@ export default function App() {
                   
                   <button
                     type="button"
-                    onClick={() => setClearType('all')}
+                    onClick={() => setPendingClearAll(true)}
                     className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-2.5 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -4627,31 +5012,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Spit up selection */}
-                      <div>
-                        <label className="block text-xs font-black text-slate-400 mb-1.5">פליטות והקאות</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { value: 'NONE', label: 'ללא פליטה' },
-                            { value: 'LIGHT', label: 'פליטה קלה' },
-                            { value: 'HEAVY_VOMIT', label: 'הקאה כבדה' }
-                          ].map((item) => (
-                            <button
-                              key={item.value}
-                              type="button"
-                              onClick={() => setSpitUp(item.value as any)}
-                              className={`py-2 rounded-xl text-xs font-bold border transition-all ${
-                                spitUp === item.value 
-                                  ? 'bg-blue-950 text-blue-300 border-blue-500' 
-                                  : 'bg-slate-950 border-slate-850 text-slate-400'
-                              }`}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
                     </div>
                   ) : (
                     /* BREAST FEEDING FORM */
@@ -4718,8 +5078,105 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Top-up bottle section */}
+                      <div className="pt-2 border-t border-slate-850/60">
+                        {!showTopUp ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowTopUp(true)}
+                            className="w-full py-2 text-xs font-bold text-sky-400 bg-slate-950 border border-slate-850 rounded-xl hover:bg-slate-900 transition-all"
+                          >
+                            הוסף השלמה
+                          </button>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black text-slate-300">השלמה בבקבוק</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowTopUp(false)}
+                                className="text-[10px] text-slate-500 hover:text-slate-300 font-bold"
+                              >
+                                הסתר
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-850">
+                              <button
+                                type="button"
+                                onClick={() => setTopUpLiquidType('EXPRESSED_MILK')}
+                                className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                  topUpLiquidType === 'EXPRESSED_MILK'
+                                    ? 'bg-slate-850 text-blue-300'
+                                    : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                              >
+                                חלב שאוב
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTopUpLiquidType('FORMULA')}
+                                className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                  topUpLiquidType === 'FORMULA'
+                                    ? 'bg-slate-850 text-blue-300'
+                                    : 'text-slate-500 hover:text-slate-300'
+                                }`}
+                              >
+                                פורמולה
+                              </button>
+                            </div>
+                            <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-850 flex items-center justify-between">
+                              <div>
+                                <span className="text-xs font-black text-slate-400 block">כמות שנאכלה</span>
+                                <span className="text-lg font-black text-slate-200">{topUpConsumedMl} מ״ל</span>
+                              </div>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setTopUpConsumedMl(prev => Math.max(0, prev - 10))}
+                                  className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                                >
+                                  <Minus className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setTopUpConsumedMl(prev => Math.min(300, prev + 10))}
+                                  className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
+
+                  {/* Spit up selection — valid for bottle and breast */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-400 mb-1.5">פליטות והקאות</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'NONE', label: 'ללא פליטה' },
+                        { value: 'LIGHT', label: 'פליטה קלה' },
+                        { value: 'HEAVY_VOMIT', label: 'הקאה כבדה' }
+                      ].map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          onClick={() => setSpitUp(item.value as any)}
+                          className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                            spitUp === item.value 
+                              ? 'bg-blue-950 text-blue-300 border-blue-500' 
+                              : 'bg-slate-950 border-slate-850 text-slate-400'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -5425,6 +5882,108 @@ export default function App() {
                         <option value="POO">צואה בלבד</option>
                         <option value="BOTH">שתן וצואה</option>
                       </select>
+
+                      {diaperContains !== 'POO' && (
+                        <div>
+                          <label className="block text-xs font-black text-slate-400 mb-1.5">רטיבות החיתול (רטיבות שתן)</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              { value: 'LIGHT', label: 'רטיבות קלה' },
+                              { value: 'HEAVY_SOAKED', label: 'רטוב כבד / נפוח' }
+                            ].map((item) => (
+                              <button
+                                key={item.value}
+                                type="button"
+                                onClick={() => setPeeVolume(item.value as any)}
+                                className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                                  peeVolume === item.value 
+                                    ? 'bg-slate-800 text-teal-300 border-teal-500' 
+                                    : 'bg-slate-950 border-slate-850 text-slate-400'
+                                }`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {diaperContains !== 'PEE' && (
+                        <div className="space-y-4 pt-1 border-t border-slate-850">
+                          <div>
+                            <label className="block text-xs font-black text-slate-400 mb-1.5">כמות צואה</label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { value: 'SMALL', label: 'קטן / לכלוך' },
+                                { value: 'MEDIUM', label: 'בינוני' },
+                                { value: 'LARGE_OVERFLOW', label: 'גדול / גלישה' }
+                              ].map((item) => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  onClick={() => setPooAmount(item.value as any)}
+                                  className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                                    pooAmount === item.value 
+                                      ? 'bg-slate-800 text-teal-300 border-teal-500' 
+                                      : 'bg-slate-950 border-slate-850 text-slate-400'
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-black text-slate-400 mb-1.5">צבע צואה</label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { value: 'YELLOW_MUSTARD', label: 'צהוב חרדל 🟡' },
+                                { value: 'GREEN', label: 'ירוק 🟢' },
+                                { value: 'BROWN', label: 'חום 🟤' }
+                              ].map((item) => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  onClick={() => setPooColor(item.value as any)}
+                                  className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                                    pooColor === item.value 
+                                      ? 'bg-slate-800 text-teal-300 border-teal-500' 
+                                      : 'bg-slate-950 border-slate-850 text-slate-400'
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-black text-slate-400 mb-1.5">מרקם צואה</label>
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {[
+                                { value: 'SEEDY', label: 'גרגרי' },
+                                { value: 'LIQUID', label: 'נוזלי' },
+                                { value: 'PASTY', label: 'משחתי' },
+                                { value: 'HARD', label: 'קשה' }
+                              ].map((item) => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  onClick={() => setPooTexture(item.value as any)}
+                                  className={`py-2 rounded-lg text-[10px] font-bold border transition-all ${
+                                    pooTexture === item.value 
+                                      ? 'bg-slate-800 text-teal-300 border-teal-500' 
+                                      : 'bg-slate-950 border-slate-850 text-slate-400'
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -5712,6 +6271,53 @@ export default function App() {
             <span>זמן לאמבטיה היומית! 🧼🫧</span>
             <span className="w-5 h-5 rounded-full bg-black/25 flex items-center justify-center text-[10px] hover:bg-black/40 mr-1.5 transition-all">✕</span>
           </motion.button>
+        </div>
+      )}
+
+      {/* Typed confirmation modal for factory reset (clear all) */}
+      {pendingClearAll && (
+        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 transition-opacity">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-[32px] p-6 shadow-2xl z-50 text-right space-y-5">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-base font-black text-rose-400">אתחול מלא ומחיקת כל הנתונים</h3>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-normal font-medium">
+              פעולה זו תמחק לצמיתות את כל האירועים במערכת ולא ניתן לשחזר אותם. כדי לאשר, הקלד &apos;מחק הכל&apos;
+            </p>
+
+            <input
+              type="text"
+              value={clearConfirmText}
+              onChange={(e) => setClearConfirmText(e.target.value)}
+              placeholder="מחק הכל"
+              dir="rtl"
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-1 focus:ring-rose-500 focus:outline-none text-right"
+            />
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setClearConfirmText('');
+                  setPendingClearAll(false);
+                }}
+                disabled={submitting}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-2xl text-xs transition-all cursor-pointer"
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                onClick={() => handleClearData('all')}
+                disabled={submitting || clearConfirmText !== 'מחק הכל'}
+                className="flex-1 bg-rose-650 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black py-2.5 rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
+              >
+                {submitting ? 'מוחק...' : 'כן, למחוק לצמיתות'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
