@@ -85,12 +85,19 @@ export async function saveSettings(settings: Partial<UserSettings>): Promise<Use
   }
 }
 
+function isActiveEvent(event: BabyEvent): boolean {
+  return !event.deletedAt;
+}
+
 export async function getAllEvents(): Promise<BabyEvent[]> {
   try {
     const snapshot = await eventsCollection.orderBy('timestamp', 'desc').get();
     const list: BabyEvent[] = [];
     snapshot.forEach(docSnap => {
-      list.push(docSnap.data() as BabyEvent);
+      const event = docSnap.data() as BabyEvent;
+      if (isActiveEvent(event)) {
+        list.push(event);
+      }
     });
     return list;
   } catch (err) {
@@ -99,7 +106,10 @@ export async function getAllEvents(): Promise<BabyEvent[]> {
       const snapshot = await eventsCollection.get();
       const list: BabyEvent[] = [];
       snapshot.forEach(docSnap => {
-        list.push(docSnap.data() as BabyEvent);
+        const event = docSnap.data() as BabyEvent;
+        if (isActiveEvent(event)) {
+          list.push(event);
+        }
       });
       list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       return list;
@@ -117,7 +127,7 @@ export async function getOpenSleepSession(): Promise<BabyEvent | null> {
     let openSession: BabyEvent | null = null;
     snapshot.forEach(docSnap => {
       const data = docSnap.data() as BabyEvent;
-      if (data.sleep && data.sleep.endAt === null) {
+      if (isActiveEvent(data) && data.sleep && data.sleep.endAt === null) {
         openSession = data;
       }
     });
@@ -142,10 +152,15 @@ export async function saveEvent(event: BabyEvent): Promise<BabyEvent> {
 
 export async function deleteEvent(id: string): Promise<boolean> {
   try {
-    await eventsCollection.doc(id).delete();
+    const docRef = eventsCollection.doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      return false;
+    }
+    await docRef.update({ deletedAt: new Date().toISOString() });
     return true;
   } catch (err) {
-    console.error('Error deleting event from Firestore:', err);
+    console.error('Error soft-deleting event from Firestore:', err);
     return false;
   }
 }

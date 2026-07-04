@@ -28,6 +28,8 @@ if (!process.env.SESSION_SECRET) {
 
 app.use(express.json());
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -35,6 +37,7 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
+    maxAge: THIRTY_DAYS_MS,
   },
 }));
 

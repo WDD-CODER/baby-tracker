@@ -94,6 +94,7 @@ export interface BabyEvent {
   timestamp: string; // ISO string
   eventType: EventType;
   loggedBy: ParentType;
+  deletedAt?: string; // ISO string — soft-delete; filtered from queries by default
   notes?: string;
   nutrition?: NutritionPayload;
   diaper?: DiaperPayload;

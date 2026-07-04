@@ -155,7 +155,8 @@ export default function App() {
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; undoEventId?: string } | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Active Logging bottom sheets
   const [activeSheet, setActiveSheet] = useState<'bottle' | 'diaper' | 'activity' | 'weight' | 'pumping' | 'vomiting' | 'sleep' | 'edit' | null>(null);
@@ -257,6 +258,7 @@ export default function App() {
     const todayStr = new Date().toDateString();
     return localStorage.getItem(`bt_dismissed_bath_${todayStr}`) === 'true';
   });
+  const [dismissedLongSleepWarning, setDismissedLongSleepWarning] = useState(false);
   const [lastCalculatedDay, setLastCalculatedDay] = useState<string>(() => new Date().toDateString());
 
   // ==========================================
@@ -297,7 +299,8 @@ export default function App() {
       });
 
       if (res.ok) {
-        showToast('הנקה מהירה נרשמה בהצלחה 🤱');
+        const data = await res.json();
+        showUndoToast(data.id, 'הנקה מהירה נרשמה 🤱');
         fetchEvents();
       } else {
         showToast('תקלה ברישום ארוחה מהירה');
@@ -345,7 +348,8 @@ export default function App() {
       });
 
       if (res.ok) {
-        showToast(`חיתול נרשם: ${containsLabel}`);
+        const data = await res.json();
+        showUndoToast(data.id, `חיתול נרשם: ${containsLabel}`);
         fetchEvents();
         setShowQuickDiaperMenu(false);
       } else {
@@ -389,7 +393,8 @@ export default function App() {
       });
 
       if (res.ok) {
-        showToast(`פליטה נרשמה: ${sizeLabel}`);
+        const data = await res.json();
+        showUndoToast(data.id, `פליטה נרשמה: ${sizeLabel}`);
         fetchEvents();
         setShowQuickVomitingMenu(false);
       } else {
@@ -519,6 +524,22 @@ export default function App() {
       setCarouselIndex(0);
     }
   }, [activeTab]);
+
+  // Refresh open sleep session when tab regains focus (GAP-08)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isAuthenticated) {
+        checkOpenSleepSession();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isAuthenticated]);
+
+  // Reset long-sleep warning when the open session changes (GAP-12)
+  useEffect(() => {
+    setDismissedLongSleepWarning(false);
+  }, [openSleepSession?.id]);
 
   // Sync sleep session timer
   useEffect(() => {
@@ -1015,11 +1036,39 @@ export default function App() {
     }
   }, [activeTab, dashboardDays]);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 3500);
+  const showToast = (msg: string, options?: { undoEventId?: string }) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message: msg, undoEventId: options?.undoEventId });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, options?.undoEventId ? 4000 : 3500);
+  };
+
+  const showUndoToast = (eventId: string, message = 'נרשם') => {
+    showToast(message, { undoEventId: eventId });
+  };
+
+  const handleUndoLastLog = async () => {
+    if (!toast?.undoEventId) return;
+    const eventId = toast.undoEventId;
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast(null);
+    try {
+      const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('הפעולה בוטלה');
+        fetchEvents();
+        checkOpenSleepSession();
+      } else {
+        showToast('לא ניתן לבטל את הפעולה');
+      }
+    } catch {
+      showToast('שגיאה בביטול הפעולה');
+    }
   };
 
   const handleUnauthorized = () => {
@@ -1351,7 +1400,8 @@ export default function App() {
       });
 
       if (res.ok) {
-        showToast('האירוע נשמר בהצלחה');
+        const data = await res.json();
+        showUndoToast(data.id, 'האירוע נשמר בהצלחה');
         resetForm();
         fetchEvents();
         setActiveSheet(null);
@@ -1457,7 +1507,7 @@ export default function App() {
   };
 
   const handleDeleteEvent = async (id: string) => {
-    if (!confirm('האם למחוק אירוע זה לצמיתות?')) return;
+    if (!confirm('האם למחוק את האירוע הזה?')) return;
     try {
       const res = await fetch(`/api/events/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -1827,6 +1877,11 @@ export default function App() {
     return "bg-slate-950 text-slate-100";
   };
 
+  const isLongOpenSleep = openSleepSession ? (() => {
+    const start = new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp).getTime();
+    return Date.now() - start > 12 * 60 * 60 * 1000;
+  })() : false;
+
   if (!authChecked) {
     return (
       <div dir="rtl" className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 font-bold">
@@ -1939,6 +1994,33 @@ export default function App() {
         </div>
       )}
 
+      {/* Long open sleep session warning (GAP-12) */}
+      {openSleepSession && isLongOpenSleep && !dismissedLongSleepWarning && (
+        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-500/30 text-amber-100 py-3.5 px-4 text-xs font-bold flex items-center justify-between gap-2 shadow-md">
+          <div className="flex items-center gap-2 text-right flex-1">
+            <span className="text-sm">💤⏰</span>
+            <span>האם התינוק עדיין ישן? האירוע פתוח מזה 12 שעות.</span>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => openEditSheet(openSleepSession)}
+              className="bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-black px-3 py-1.5 rounded-xl transition-all shadow-sm cursor-pointer"
+            >
+              עריכת שעת סיום
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedLongSleepWarning(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-400 p-1.5 rounded-lg transition-colors cursor-pointer"
+              title="סגור הודעה"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Midday Big Nap recommendation banner */}
       {isNapSlotTime() && (
         <div className="bg-gradient-to-r from-indigo-950/90 via-slate-900/95 to-indigo-950/90 border-b border-indigo-500/30 text-indigo-100 py-3 px-4 text-xs font-bold text-center flex items-center justify-center gap-2 shadow-inner transition-all duration-300">
@@ -1948,10 +2030,22 @@ export default function App() {
       )}
 
       {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-indigo-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-indigo-400 animate-bounce">
-          <Sparkles className="w-5 h-5 text-indigo-200" />
-          <span>{toastMessage}</span>
+      {toast && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-indigo-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-indigo-400">
+          <Sparkles className="w-5 h-5 text-indigo-200 shrink-0" />
+          <span>{toast.message}</span>
+          {toast.undoEventId && (
+            <>
+              <span className="text-indigo-300">·</span>
+              <button
+                type="button"
+                onClick={handleUndoLastLog}
+                className="text-white underline underline-offset-2 hover:text-indigo-100 font-black cursor-pointer"
+              >
+                בטל
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -2755,8 +2849,8 @@ export default function App() {
             ) : events.length === 0 ? (
               <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-10 text-center flex flex-col items-center gap-3">
                 <span className="text-3xl">📭</span>
-                <p className="text-sm text-slate-400 font-bold">אין עדיין אירועים מתועדים באפליקציה.</p>
-                <p className="text-xs text-slate-500">התחל לרשום אירועים במסך הראשי כדי למלא את ציר הזמן.</p>
+                <p className="text-sm text-slate-400 font-bold">עדיין לא רשמתם אירועים.</p>
+                <p className="text-xs text-slate-500">לחצו על כפתור למטה כדי להתחיל.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-3 relative before:absolute before:top-0 before:bottom-0 before:right-6 before:w-0.5 before:bg-slate-800/80">
@@ -3077,7 +3171,7 @@ export default function App() {
               ) : (
                 <>
                   {getFeedingDashboardData().length === 0 ? (
-                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני תזונה להצגה</p>
+                    <p className="text-xs text-slate-500 text-center py-6">אין נתונים לתקופה הנבחרת.</p>
                   ) : (
                     <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
                       {getFeedingDashboardData().map((group, idx) => (
@@ -3269,7 +3363,7 @@ export default function App() {
               ) : (
                 <>
                   {sleepStats.length === 0 ? (
-                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני שינה</p>
+                    <p className="text-xs text-slate-500 text-center py-6">אין נתונים לתקופה הנבחרת.</p>
                   ) : (
                     <div className="space-y-3">
                       {sleepStats.map((stat, idx) => {
@@ -3302,7 +3396,7 @@ export default function App() {
                     </div>
 
                     {getSleepTimelineData().length === 0 ? (
-                      <p className="text-[10px] text-slate-500 text-center py-4">אין נתונים להצגת רצף שינה</p>
+                      <p className="text-[10px] text-slate-500 text-center py-4">אין נתונים לתקופה הנבחרת.</p>
                     ) : (
                       <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                         {getSleepTimelineData().map((dayGroup, idx) => (
@@ -3483,7 +3577,7 @@ export default function App() {
               ) : (
                 <>
                   {getDiaperDashboardData().length === 0 ? (
-                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני חיתולים להצגה</p>
+                    <p className="text-xs text-slate-500 text-center py-6">אין נתונים לתקופה הנבחרת.</p>
                   ) : (
                     <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
                       {getDiaperDashboardData().map((group, idx) => (
@@ -3664,7 +3758,7 @@ export default function App() {
               ) : (
                 <>
                   {getPumpingDashboardData().length === 0 ? (
-                    <p className="text-xs text-slate-500 text-center py-6">אין מספיק נתוני שאיבות להצגה</p>
+                    <p className="text-xs text-slate-500 text-center py-6">אין נתונים לתקופה הנבחרת.</p>
                   ) : (
                     <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
                       {getPumpingDashboardData().map((group, idx) => {
@@ -4028,6 +4122,7 @@ export default function App() {
                           const d = new Date();
                           d.setDate(d.getDate() - days);
                           setExportFromDate(d.toISOString().split('T')[0]);
+                          setExportToDate(new Date().toISOString().split('T')[0]);
                         }}
                         className="text-[10px] text-indigo-400 hover:underline font-bold"
                       >
