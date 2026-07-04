@@ -30,7 +30,7 @@ import {
   RefreshCw,
   X,
   PlusCircle,
-  HelpCircle
+  LogOut,
 } from 'lucide-react';
 import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType } from './types';
 import { InstallAppButton } from './components/InstallAppButton';
@@ -145,10 +145,14 @@ export default function App() {
     customActivities: ['שגרת בוקר', 'בייבי יוגה', 'שירים', 'טיול בעגלה', 'עיסוי תינוקות']
   });
   const [openSleepSession, setOpenSleepSession] = useState<BabyEvent | null>(null);
-  const [activeParent, setActiveParent] = useState<ParentType>(() => {
-    const stored = localStorage.getItem('bt_active_parent');
-    return (stored === 'PARENT_A' || stored === 'PARENT_B') ? stored : 'PARENT_A';
-  });
+  const [activeParent, setActiveParent] = useState<ParentType>('PARENT_A');
+  const [loggedInParentName, setLoggedInParentName] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -496,14 +500,17 @@ export default function App() {
 
   // Initialization
   useEffect(() => {
-    // Load parent from localStorage if exists
-    const storedParent = localStorage.getItem('bt_active_parent');
-    if (storedParent === 'PARENT_A' || storedParent === 'PARENT_B') {
-      setActiveParent(storedParent);
+    async function init() {
+      const authed = await fetchSettings();
+      if (authed) {
+        await fetchEvents();
+        await checkOpenSleepSession();
+      } else {
+        setLoading(false);
+      }
+      setAuthChecked(true);
     }
-    fetchSettings();
-    fetchEvents();
-    checkOpenSleepSession();
+    init();
   }, []);
 
   // Reset carousel to newest when entering the main tab
@@ -1015,23 +1022,85 @@ export default function App() {
     }, 3500);
   };
 
-  // API calls
-  async function fetchSettings() {
+  const handleUnauthorized = () => {
+    setIsAuthenticated(false);
+    setLoggedInParentName('');
+    setActiveParent('PARENT_A');
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginSubmitting(true);
+    setLoginError(null);
     try {
-      const res = await fetch('/api/settings');
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
+      });
       if (res.ok) {
         const data = await res.json();
-        setSettings(data);
-        setParentANameInput(data.parentAName);
-        setParentBNameInput(data.parentBName);
-        setDefaultBottleTypeInput(data.defaultBottleType);
-        setBabyNameInput(data.babyProfile?.name ?? '');
-        setBabyDobInput(data.babyProfile?.dateOfBirth ?? '');
-        setBabyBirthWeightInput(data.babyProfile?.birthWeightGrams ?? 0);
-        setBottleLiquidType(data.defaultBottleType);
+        setIsAuthenticated(true);
+        setActiveParent(data.parentType);
+        setLoggedInParentName(data.parentName);
+        setLoginUsername('');
+        setLoginPassword('');
+        await fetchSettings();
+        await fetchEvents();
+        await checkOpenSleepSession();
+      } else {
+        setLoginError('שם משתמש או סיסמה שגויים');
       }
+    } catch {
+      setLoginError('שגיאה בחיבור לשרת');
+    } finally {
+      setLoginSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch {
+      // proceed to local logout even if request fails
+    }
+    handleUnauthorized();
+    setLoginUsername('');
+    setLoginPassword('');
+    setEvents([]);
+    setOpenSleepSession(null);
+  };
+
+  // API calls
+  async function fetchSettings(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.status === 401) {
+        handleUnauthorized();
+        return false;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        const { currentParent, ...settingsData } = data;
+        setSettings(settingsData);
+        setParentANameInput(settingsData.parentAName);
+        setParentBNameInput(settingsData.parentBName);
+        setDefaultBottleTypeInput(settingsData.defaultBottleType);
+        setBabyNameInput(settingsData.babyProfile?.name ?? '');
+        setBabyDobInput(settingsData.babyProfile?.dateOfBirth ?? '');
+        setBabyBirthWeightInput(settingsData.babyProfile?.birthWeightGrams ?? 0);
+        setBottleLiquidType(settingsData.defaultBottleType);
+        if (currentParent) {
+          setIsAuthenticated(true);
+          setActiveParent(currentParent.parentType);
+          setLoggedInParentName(currentParent.parentName);
+        }
+        return true;
+      }
+      return false;
     } catch (e) {
       console.error(e);
+      return false;
     }
   }
 
@@ -1039,6 +1108,10 @@ export default function App() {
     try {
       setLoading(true);
       const res = await fetch('/api/events?limit=60');
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setEvents(data.events);
@@ -1053,6 +1126,10 @@ export default function App() {
   async function checkOpenSleepSession() {
     try {
       const res = await fetch('/api/sleep/open');
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setOpenSleepSession(data);
@@ -1082,14 +1159,7 @@ export default function App() {
     }
   }
 
-  const handleParentChange = (parent: ParentType) => {
-    setActiveParent(parent);
-    localStorage.setItem('bt_active_parent', parent);
-    showToast(`המשתמש הוחלף ל-${parent === 'PARENT_A' ? settings.parentAName : settings.parentBName}`);
-  };
-
-  const handleClearData = async (type: 'all' | 'cutoff') => {
-    setSubmitting(true);
+  const handleClearData = async (type: 'all' | 'cutoff') => {    setSubmitting(true);
     try {
       let body: any = {};
       if (type === 'cutoff') {
@@ -1129,8 +1199,6 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          loggedBy: activeParent,
-          activeParent,
           startLocation: location,
           customStartAt: customTimestamp ? new Date(customTimestamp).toISOString() : undefined
         })
@@ -1169,8 +1237,6 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          loggedBy: activeParent,
-          activeParent,
           startLocation: 'CRIB',
           quickRecorded: true
         })
@@ -1761,6 +1827,72 @@ export default function App() {
     return "bg-slate-950 text-slate-100";
   };
 
+  if (!authChecked) {
+    return (
+      <div dir="rtl" className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 font-bold">
+        טוען...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div dir="rtl" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 font-sans">
+        <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center text-white font-extrabold text-lg mx-auto border border-indigo-400/30">
+              BT
+            </div>
+            <h1 className="text-xl font-black text-slate-100">מעקב תינוק</h1>
+            <p className="text-xs text-slate-400 font-bold">התחברות למערכת</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 mb-1.5">שם משתמש</label>
+              <input
+                type="text"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                autoComplete="username"
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3.5 py-3 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                placeholder="הזן שם משתמש"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 mb-1.5">סיסמה</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                autoComplete="current-password"
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3.5 py-3 text-sm focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                placeholder="הזן סיסמה"
+                required
+              />
+            </div>
+
+            {loginError && (
+              <p className="text-xs font-bold text-rose-400 text-center">{loginError}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginSubmitting}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-black py-3 rounded-2xl text-sm shadow-lg transition-all"
+            >
+              {loginSubmitting ? 'מתחבר...' : 'התחברות'}
+            </button>
+          </form>
+          <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+            אין הרשמה באפליקציה — שני חשבונות הורים מוגדרים מראש בשרת (קובץ .env).
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen flex flex-col font-sans select-none pb-24 transition-all duration-700 ${getAppThemeBgClass()}`} dir="rtl">
       
@@ -1838,28 +1970,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Parents Avatars & Picker */}
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => handleParentChange('PARENT_A')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                activeParent === 'PARENT_A' 
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 shadow-lg' 
-                  : 'bg-slate-800 text-slate-400 border border-slate-700/60'
-              }`}
-            >
-              👩‍⚕️ {settings.parentAName}
-            </button>
-            <button 
-              onClick={() => handleParentChange('PARENT_B')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                activeParent === 'PARENT_B' 
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 shadow-lg' 
-                  : 'bg-slate-800 text-slate-400 border border-slate-700/60'
-              }`}
-            >
-              👨‍⚕️ {settings.parentBName}
-            </button>
+          <div className="px-3 py-1.5 rounded-lg text-xs font-black bg-indigo-600/20 text-indigo-200 border border-indigo-500/30">
+            👤 {loggedInParentName}
           </div>
         </div>
       </header>
@@ -3861,6 +3973,17 @@ export default function App() {
           <div className="flex flex-col gap-4">
 
             <InstallAppButton />
+
+            <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-black py-3 px-4 rounded-2xl flex items-center justify-center gap-2 transition-all text-sm cursor-pointer border border-slate-700/60"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>התנתקות</span>
+              </button>
+            </section>
             
             {/* EXPORT SECTION */}
             <section className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">

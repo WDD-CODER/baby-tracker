@@ -3,29 +3,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import session from 'express-session';
+import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import ExcelJS from 'exceljs';
 import { getSettings, saveSettings, getAllEvents, getOpenSleepSession, saveEvent, deleteEvent, clearAllEvents } from './server/db';
 import { BabyEvent, EventType, UserSettings, SleepLocationType, ParentType } from './src/types';
 
+declare module 'express-session' {
+  interface SessionData {
+    parentType?: ParentType;
+  }
+}
+
 const app = express();
 const PORT = 3000;
 
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required');
+}
+
 app.use(express.json());
+
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+  },
+}));
 
 // Helper to generate unique IDs
 function generateId(): string {
   return 'event_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-}
-
-// Validates the active parent; defaults to PARENT_A silently (never throws for this field)
-function parseActiveParent(body: { activeParent?: string }): ParentType {
-  if (body.activeParent === 'PARENT_A' || body.activeParent === 'PARENT_B') {
-    return body.activeParent;
-  }
-  return 'PARENT_A';
 }
 
 // Helper to format Date to local Israel date (YYYY-MM-DD)
@@ -66,13 +81,83 @@ function toIsraelLocalTimeStr(isoString: string): string {
 }
 
 // ==========================================
+// 0. API Endpoints: Auth
+// ==========================================
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body ?? {};
+
+    if (!username || !password) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+
+    let parentType: ParentType | null = null;
+
+    if (username === process.env.PARENT_A_USERNAME) {
+      const hash = process.env.PARENT_A_PASSWORD_HASH;
+      if (hash && await bcrypt.compare(password, hash)) {
+        parentType = 'PARENT_A';
+      }
+    } else if (username === process.env.PARENT_B_USERNAME) {
+      const hash = process.env.PARENT_B_PASSWORD_HASH;
+      if (hash && await bcrypt.compare(password, hash)) {
+        parentType = 'PARENT_B';
+      }
+    }
+
+    if (!parentType) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+
+    req.session.parentType = parentType;
+    const settings = await getSettings();
+    const parentName = parentType === 'PARENT_A'
+      ? settings.parentAName
+      : settings.parentBName;
+
+    res.json({ parentType, parentName });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to login' });
+  }
+});
+
+app.use('/api', (req, res, next) => {
+  if (req.session.parentType) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: 'Unauthorized' });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      res.status(500).json({ error: 'Failed to logout' });
+      return;
+    }
+    res.clearCookie('connect.sid');
+    res.json({ success: true });
+  });
+});
+
+// ==========================================
 // 1. API Endpoints: Settings
 // ==========================================
 
 app.get('/api/settings', async (req, res) => {
   try {
     const settings = await getSettings();
-    res.json(settings);
+    const parentType = req.session.parentType!;
+    const parentName = parentType === 'PARENT_A'
+      ? settings.parentAName
+      : settings.parentBName;
+    res.json({
+      ...settings,
+      currentParent: { parentType, parentName },
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch settings' });
   }
@@ -104,8 +189,8 @@ app.get('/api/sleep/open', async (req, res) => {
 app.post('/api/sleep/toggle', async (req, res) => {
   try {
     const now = new Date().toISOString();
-    const loggedBy = req.body.loggedBy || 'PARENT_A';
-    const activeParent = parseActiveParent(req.body);
+    const activeParent = req.session.parentType!;
+    const loggedBy = activeParent;
     const startLocation: SleepLocationType = req.body.startLocation || req.body.location || 'CRIB';
     const customStartAt = req.body.customStartAt;
     const quickRecorded = req.body.quickRecorded || false;

@@ -7,3 +7,6 @@ coverage/
 *.log
 .env*
 !.env.example
+firebase-admin-config.json
+firebase-applet-config.json
+*-firebase-adminsdk-*.json
