@@ -83,6 +83,27 @@ function toIsraelLocalTimeStr(isoString: string): string {
   }
 }
 
+function getIsraelUtcOffset(dateStr?: string): string {
+  const ref = dateStr ? new Date(`${dateStr}T12:00:00Z`) : new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jerusalem',
+    timeZoneName: 'longOffset',
+  });
+  const parts = formatter.formatToParts(ref);
+  const tz = parts.find(p => p.type === 'timeZoneName')?.value ?? 'GMT+02:00';
+  const longMatch = tz.match(/GMT([+-]\d{2}:\d{2})/);
+  if (longMatch) return longMatch[1];
+  const shortMatch = tz.match(/GMT([+-])(\d+)/);
+  if (shortMatch) return `${shortMatch[1]}${shortMatch[2].padStart(2, '0')}:00`;
+  return '+02:00';
+}
+
+function parseIsraelDate(dateStr: string, endOfDay = false): Date {
+  const offset = getIsraelUtcOffset(dateStr);
+  const time = endOfDay ? '23:59:59.999' : '00:00:00';
+  return new Date(`${dateStr}T${time}${offset}`);
+}
+
 // ==========================================
 // 0. API Endpoints: Auth
 // ==========================================
@@ -127,14 +148,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-app.use('/api', (req, res, next) => {
-  if (req.session.parentType) {
-    next();
-    return;
-  }
-  res.status(401).json({ error: 'Unauthorized' });
-});
-
 app.post('/api/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
@@ -144,6 +157,14 @@ app.post('/api/logout', (req, res) => {
     res.clearCookie('connect.sid');
     res.json({ success: true });
   });
+});
+
+app.use('/api', (req, res, next) => {
+  if (req.session.parentType) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: 'Unauthorized' });
 });
 
 // ==========================================
@@ -194,7 +215,7 @@ app.post('/api/sleep/toggle', async (req, res) => {
     const now = new Date().toISOString();
     const activeParent = req.session.parentType!;
     const loggedBy = activeParent;
-    const startLocation: SleepLocationType = req.body.startLocation || req.body.location || 'CRIB';
+    const startLocation: SleepLocationType | undefined = req.body.startLocation || req.body.location || undefined;
     const customStartAt = req.body.customStartAt;
     const quickRecorded = req.body.quickRecorded || false;
 
@@ -389,8 +410,8 @@ app.post('/api/events/clear', async (req, res) => {
 app.get('/api/stats/nutrition', async (req, res) => {
   try {
     const allEvents = await getAllEvents();
-    const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(req.query.to as string) : new Date();
+    const from = req.query.from ? parseIsraelDate(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = req.query.to ? parseIsraelDate(req.query.to as string, true) : new Date();
 
     // Group nutrition by local date
     const dailyData: { [dateStr: string]: { offered: number, consumed: number, feedsCount: number, breastCount: number, bottleCount: number } } = {};
@@ -439,8 +460,8 @@ app.get('/api/stats/nutrition', async (req, res) => {
 app.get('/api/stats/sleep', async (req, res) => {
   try {
     const allEvents = await getAllEvents();
-    const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(req.query.to as string) : new Date();
+    const from = req.query.from ? parseIsraelDate(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = req.query.to ? parseIsraelDate(req.query.to as string, true) : new Date();
 
     const dailyData: { [dateStr: string]: { totalMinutes: number, sessionCount: number, sessions: any[] } } = {};
 
@@ -492,8 +513,8 @@ app.get('/api/stats/sleep', async (req, res) => {
 app.get('/api/stats/diapers', async (req, res) => {
   try {
     const allEvents = await getAllEvents();
-    const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(req.query.to as string) : new Date();
+    const from = req.query.from ? parseIsraelDate(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = req.query.to ? parseIsraelDate(req.query.to as string, true) : new Date();
 
     const dailyData: { [dateStr: string]: { pee: number, poo: number, both: number, total: number, pooColors: string[], pooTextures: string[] } } = {};
 
@@ -539,8 +560,8 @@ app.get('/api/stats/diapers', async (req, res) => {
 app.get('/api/stats/weight', async (req, res) => {
   try {
     const allEvents = await getAllEvents();
-    const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(req.query.to as string) : new Date();
+    const from = req.query.from ? parseIsraelDate(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = req.query.to ? parseIsraelDate(req.query.to as string, true) : new Date();
 
     const result = allEvents
       .filter(e => e.eventType === 'WEIGHT' && e.weight)
@@ -572,8 +593,8 @@ app.get('/api/export/xlsx', async (req, res) => {
   try {
     const allEvents = await getAllEvents();
     const settings = await getSettings();
-    const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(req.query.to as string) : new Date();
+    const from = req.query.from ? parseIsraelDate(req.query.from as string) : new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const to = req.query.to ? parseIsraelDate(req.query.to as string, true) : new Date();
 
     const events = allEvents.filter(e => {
       const d = new Date(e.timestamp);
@@ -679,7 +700,7 @@ app.get('/api/export/xlsx', async (req, res) => {
     Object.keys(dailyMap).sort().reverse().forEach(dStr => {
       const d = dailyMap[dStr];
       const delta = Math.max(0, d.offered - d.consumed);
-      const consumedPct = d.offered > 0 ? Math.round((d.consumed / d.offered) * 100) : 100;
+      const consumedPctNum = d.offered > 0 ? Math.round((d.consumed / d.offered) * 100) : null;
       const sleepHours = d.sleepMin > 0 ? `${Math.floor(d.sleepMin / 60)}ש ${d.sleepMin % 60}ד` : '0';
 
       const row = wsSummary.addRow({
@@ -687,7 +708,7 @@ app.get('/api/export/xlsx', async (req, res) => {
         offered: d.offered || '',
         consumed: d.consumed || '',
         delta: d.offered > 0 ? delta : '',
-        consumedPct: d.offered > 0 ? `${consumedPct}%` : '',
+        consumedPct: consumedPctNum !== null ? `${consumedPctNum}%` : '',
         feeds: d.feeds || '',
         sleep: sleepHours,
         pee: d.pee || '',
@@ -696,7 +717,7 @@ app.get('/api/export/xlsx', async (req, res) => {
       });
 
       // Conditional formatting for low consumption (below 75%)
-      if (d.offered > 0 && consumedPct < 75) {
+      if (consumedPctNum !== null && consumedPctNum < 75) {
         const cell = row.getCell('consumedPct');
         cell.fill = {
           type: 'pattern',
@@ -758,16 +779,23 @@ app.get('/api/export/xlsx', async (req, res) => {
     events.filter(e => e.eventType === 'SLEEP' && e.sleep).forEach(e => {
       const s = e.sleep!;
       const dur = s.durationMinutes || 0;
-      wsSleep.addRow({
+      const row = wsSleep.addRow({
         date: toIsraelLocalDateStr(s.startAt),
         start: toIsraelLocalTimeStr(s.startAt),
         end: s.endAt ? toIsraelLocalTimeStr(s.endAt) : 'ישן כעת',
         duration: dur || '',
-        durationHours: dur > 0 ? (dur / 60).toFixed(1) : '',
-        location: s.startLocation === 'CRIB' ? 'מיטה / עריסה' : (s.startLocation === 'HANDS' ? 'על הידיים' : (s.startLocation === 'CARRIER' ? 'מנשא' : 'עגלה')),
+        durationHours: '',
+        location: s.startLocation ? (s.startLocation === 'CRIB' ? 'מיטה / עריסה' : (s.startLocation === 'HANDS' ? 'על הידיים' : (s.startLocation === 'CARRIER' ? 'מנשא' : 'עגלה'))) : '',
         loggedBy: e.loggedBy === 'PARENT_A' ? (settings.parentAName || 'אמא') : (settings.parentBName || 'אבא'),
         notes: e.notes || ''
       });
+      const hoursCell = row.getCell('durationHours');
+      if (s.durationMinutes) {
+        hoursCell.value = parseFloat((s.durationMinutes / 60).toFixed(1));
+        hoursCell.numFmt = '0.0';
+      } else if (s.endAt === null) {
+        hoursCell.value = 'ישן כעת';
+      }
     });
 
     // ------------------------------------------
