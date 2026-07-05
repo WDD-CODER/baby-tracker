@@ -19,27 +19,36 @@ const DEFAULT_SETTINGS: UserSettings = {
 };
 
 function initFirestore(): Firestore {
+  let serviceAccount: object;
+
+  const credentialsJson = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
   const credentialPath = process.env.FIREBASE_ADMIN_CREDENTIALS_PATH;
-  if (!credentialPath) {
-    throw new Error('FIREBASE_ADMIN_CREDENTIALS_PATH environment variable is required');
+
+  if (credentialsJson) {
+    // Production path: base64-encoded JSON in env var (no persistent disk on Render)
+    serviceAccount = JSON.parse(Buffer.from(credentialsJson, 'base64').toString('utf8'));
+  } else if (credentialPath) {
+    // Local dev path: JSON file on disk
+    const resolvedPath = path.resolve(process.cwd(), credentialPath);
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Firebase Admin credentials file not found at: ${resolvedPath}`);
+    }
+    serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+  } else {
+    throw new Error('Either FIREBASE_ADMIN_CREDENTIALS_JSON or FIREBASE_ADMIN_CREDENTIALS_PATH must be set');
   }
 
-  const resolvedPath = path.resolve(process.cwd(), credentialPath);
-  if (!fs.existsSync(resolvedPath)) {
-    throw new Error(`Firebase Admin credentials file not found at: ${resolvedPath}`);
-  }
-
-  const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
   const app = getApps().length === 0
-    ? initializeApp({ credential: cert(serviceAccount) })
+    ? initializeApp({ credential: cert(serviceAccount as any) })
     : getApps()[0];
 
   const databaseId = process.env.FIRESTORE_DATABASE_ID;
   const firestore = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 
   const databaseLabel = databaseId ?? '(default)';
+  const projectId = (serviceAccount as any).project_id ?? 'unknown';
   console.log(
-    `Firestore Admin SDK initialized with project ID: ${serviceAccount.project_id}, database: ${databaseLabel}`
+    `Firestore Admin SDK initialized with project ID: ${projectId}, database: ${databaseLabel}`
   );
 
   return firestore;
