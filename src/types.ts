@@ -13,6 +13,8 @@ export interface BabyProfile {
   birthWeightGrams: number;
 }
 
+export type QuickActionId = 'meal' | 'diaper' | 'sleep' | 'activity' | 'weight' | 'vomiting';
+
 export interface UserSettings {
   userId: string;                  // fixed household constant 'shared-household'
   parentAName: string;             // default "אמא"
@@ -20,6 +22,7 @@ export interface UserSettings {
   defaultBottleType: 'EXPRESSED_MILK' | 'FORMULA';
   customActivities: string[];
   babyProfile?: BabyProfile;
+  quickActionOrder?: QuickActionId[];
 }
 
 export type SpitUpType = 'NONE' | 'LIGHT' | 'HEAVY_VOMIT';

@@ -33,7 +33,21 @@ import {
   PlusCircle,
   LogOut,
 } from 'lucide-react';
-import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType, PooColorType, QualityTier, TIER_MAP, classifyNutrition, classifySleep, classifyDiaper, classifyWeight } from './types';
+import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType, PooColorType, QualityTier, TIER_MAP, classifyNutrition, classifySleep, classifyDiaper, classifyWeight, QuickActionId } from './types';
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { InstallAppButton } from './components/InstallAppButton';
 import { DateTime24 } from './components/DateTime24';
 
@@ -374,6 +388,51 @@ const SleepTimer = ({ startAt }: { startAt?: string }) => {
   return <>{label}</>;
 };
 
+// === Quick Action Reorder ===
+
+const QUICK_ACTION_IDS: QuickActionId[] = ['meal', 'diaper', 'sleep', 'activity', 'weight', 'vomiting'];
+const DEFAULT_QUICK_ACTION_ORDER: QuickActionId[] = [...QUICK_ACTION_IDS];
+
+function reconcileQuickActionOrder(saved: QuickActionId[]): QuickActionId[] {
+  const knownSet = new Set<string>(QUICK_ACTION_IDS);
+  const valid = saved.filter(id => knownSet.has(id));
+  const missing = DEFAULT_QUICK_ACTION_ORDER.filter(id => !valid.includes(id));
+  return [...valid, ...missing];
+}
+
+const SortableQuickAction: React.FC<{
+  id: QuickActionId;
+  reorderMode: boolean;
+  colSpan2?: boolean;
+  children: React.ReactNode;
+}> = ({ id, reorderMode, colSpan2, children }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  const spanClass = colSpan2 ? 'col-span-2' : '';
+  if (reorderMode) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className={`${spanClass} flex flex-col cursor-grab active:cursor-grabbing touch-none select-none`}
+      >
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div ref={setNodeRef} style={style} className={`${spanClass} flex flex-col`}>
+      {children}
+    </div>
+  );
+};
+
 export default function App() {
   // App state
   const [activeTab, setActiveTab] = useState<'log' | 'timeline' | 'dashboards' | 'settings'>('log');
@@ -556,6 +615,11 @@ export default function App() {
   const [pressStartTimestamp, setPressStartTimestamp] = useState<number>(0);
   const [pressStartPos, setPressStartPos] = useState<{ x: number, y: number } | null>(null);
   const [activePressButton, setActivePressButton] = useState<'meal' | 'diaper' | 'sleep' | 'vomiting' | null>(null);
+
+  // Quick-action reorder state
+  const [reorderMode, setReorderMode] = useState(false);
+  const [quickActionOrder, setQuickActionOrder] = useState<QuickActionId[]>(DEFAULT_QUICK_ACTION_ORDER);
+  const sensors = useSensors(useSensor(PointerSensor));
 
   const handleLogBioGaya = async () => {
     if (checkAndRegisterDoubleSubmit('SUPPLEMENT')) {
@@ -813,6 +877,33 @@ export default function App() {
     setPressStartTimestamp(0);
     setActivePressButton(null);
     setPressStartPos(null);
+  };
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (over && active.id !== over.id) {
+      setQuickActionOrder(prev => {
+        const oldIndex = prev.indexOf(active.id as QuickActionId);
+        const newIndex = prev.indexOf(over.id as QuickActionId);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleSaveQuickActionOrder = async () => {
+    setReorderMode(false);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quickActionOrder }),
+      });
+      if (res.ok) {
+        showToast('סדר הכפתורים נשמר');
+        fetchSettings();
+      }
+    } catch {
+      showToast('שגיאה בשמירת הסדר');
+    }
   };
 
   // Initialization
@@ -1439,6 +1530,7 @@ export default function App() {
         setBabyDobInput(settingsData.babyProfile?.dateOfBirth ?? '');
         setBabyBirthWeightInput(settingsData.babyProfile?.birthWeightGrams ?? 0);
         setBottleLiquidType(settingsData.defaultBottleType);
+        setQuickActionOrder(reconcileQuickActionOrder(settingsData.quickActionOrder ?? []));
         if (currentParent) {
           setIsAuthenticated(true);
           setActiveParent(currentParent.parentType);
@@ -2231,6 +2323,171 @@ export default function App() {
     );
   }
 
+  const renderQuickButton = (id: QuickActionId): React.ReactNode => {
+    switch (id) {
+      case 'meal': return (
+        <button
+          onPointerDown={reorderMode ? undefined : (e) => handlePointerDownButton('meal', e)}
+          onPointerUp={reorderMode ? undefined : (e) => handlePointerUpButton('meal', e)}
+          onPointerMove={reorderMode ? undefined : handlePointerMoveButton}
+          onPointerCancel={reorderMode ? undefined : handlePointerCancelButton}
+          onPointerLeave={reorderMode ? undefined : handlePointerCancelButton}
+          onContextMenu={reorderMode ? undefined : (e) => e.preventDefault()}
+          className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
+            !reorderMode && activePressButton === 'meal'
+              ? 'scale-95 border-blue-500 bg-slate-850 shadow-blue-500/10'
+              : 'border-slate-800 hover:border-blue-500/40'
+          }`}
+        >
+          <div className="w-11 h-11 bg-blue-550/30 text-blue-400 rounded-2xl flex items-center justify-center border border-blue-500/20">
+            🍼
+          </div>
+          <div className="text-center">
+            <span className="text-base font-black text-blue-300 block">ארוחה / בקבוק</span>
+            <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[10px] font-bold">
+              <span className="text-blue-400">🍼 בקבוקים: {todayBottlesCount}</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-sky-400">🤱 הנקות: {todayBreastCount}</span>
+            </div>
+            <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+              קליק: ארוחה מהירה 🍼 | החזק: מלא 🤱
+            </span>
+            <div className={`mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-black font-mono inline-block ${
+              getFeedingCountdown().isOverdue
+                ? openSleepSession
+                  ? 'bg-emerald-500 text-slate-950 border border-emerald-400'
+                  : 'bg-red-500 text-white animate-pulse'
+                : 'bg-slate-950 text-slate-300 border border-slate-800/80'
+            }`}>
+              {getFeedingCountdown().isOverdue
+                ? openSleepSession
+                  ? 'הגיע זמן האכלה (תינוק ישן 💤)'
+                  : 'האכלה דחופה! 🚨'
+                : `האכלה הבאה: ${getFeedingCountdown().display}`}
+            </div>
+          </div>
+        </button>
+      );
+      case 'diaper': return (
+        <button
+          onPointerDown={reorderMode ? undefined : (e) => handlePointerDownButton('diaper', e)}
+          onPointerUp={reorderMode ? undefined : (e) => handlePointerUpButton('diaper', e)}
+          onPointerMove={reorderMode ? undefined : handlePointerMoveButton}
+          onPointerCancel={reorderMode ? undefined : handlePointerCancelButton}
+          onPointerLeave={reorderMode ? undefined : handlePointerCancelButton}
+          onContextMenu={reorderMode ? undefined : (e) => e.preventDefault()}
+          className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
+            !reorderMode && activePressButton === 'diaper'
+              ? 'scale-95 border-teal-500 bg-slate-850 shadow-teal-500/10'
+              : 'border-slate-800 hover:border-teal-500/40'
+          }`}
+        >
+          <div className="w-11 h-11 bg-teal-550/30 text-teal-400 rounded-2xl flex items-center justify-center border border-teal-500/20">
+            🧷
+          </div>
+          <div className="text-center">
+            <span className="text-base font-black text-teal-300 block">החלפת חיתול</span>
+            <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[9px] font-bold">
+              <span className="text-blue-400">💦 {todayPeeCount}</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-amber-500">💩 {todayPooCount}</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-teal-400">💦💩 {todayBothCount}</span>
+            </div>
+            <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+              קליק: מהיר 💦💩 | החזק: מלא 📋
+            </span>
+          </div>
+        </button>
+      );
+      case 'sleep': return (
+        <button
+          onPointerDown={reorderMode ? undefined : (e) => handlePointerDownButton('sleep', e)}
+          onPointerUp={reorderMode ? undefined : (e) => handlePointerUpButton('sleep', e)}
+          onPointerMove={reorderMode ? undefined : handlePointerMoveButton}
+          onPointerCancel={reorderMode ? undefined : handlePointerCancelButton}
+          onPointerLeave={reorderMode ? undefined : handlePointerCancelButton}
+          onContextMenu={reorderMode ? undefined : (e) => e.preventDefault()}
+          className={`rounded-3xl p-5 flex items-center justify-between shadow-lg transition-all min-h-[90px] select-none touch-none focus:outline-none cursor-pointer ${
+            !reorderMode && activePressButton === 'sleep'
+              ? 'scale-[0.97] bg-slate-800/80'
+              : ''
+          } ${
+            openSleepSession
+              ? 'bg-rose-950/70 border border-rose-500/50 text-rose-100 shadow-rose-950/20'
+              : 'bg-indigo-650 hover:bg-indigo-700 text-white border border-indigo-500/40'
+          }`}
+        >
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
+              openSleepSession ? 'bg-rose-500 text-white' : 'bg-white text-indigo-600'
+            }`}>
+              <Moon className={`w-7 h-7 ${openSleepSession ? 'animate-pulse' : ''}`} />
+            </div>
+            <div className="text-right">
+              <span className="text-xl font-black block">
+                {openSleepSession ? 'להעיר תינוק ⏰' : 'השכבה לישון 💤'}
+              </span>
+              <span className="text-[10px] opacity-80 block mt-0.5 leading-tight font-medium">
+                {openSleepSession ? 'קליק מהיר להעיר ⏰ | החזק להגדרת שינה' : 'קליק מהיר: שינה מהירה עכשיו 💤 | החזק: בחירת מיקום 📋'}
+              </span>
+            </div>
+          </div>
+          <div className="text-left font-mono font-bold text-lg">
+            {openSleepSession ? <SleepTimer startAt={openSleepSession.sleep?.startAt || openSleepSession.timestamp} /> : 'ער'}
+          </div>
+        </button>
+      );
+      case 'activity': return (
+        <button
+          onClick={reorderMode ? undefined : () => openAddSheet('activity')}
+          className="bg-slate-900/90 border border-slate-800 hover:border-amber-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
+        >
+          <div className="w-12 h-12 bg-amber-550/35 text-amber-400 rounded-2xl flex items-center justify-center border border-amber-500/25">
+            🎨
+          </div>
+          <span className="text-base font-black text-amber-300">תיעוד פעילות</span>
+        </button>
+      );
+      case 'weight': return (
+        <button
+          onClick={reorderMode ? undefined : () => openAddSheet('weight')}
+          className="bg-slate-900/90 border border-slate-800 hover:border-pink-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
+        >
+          <div className="w-12 h-12 bg-pink-550/35 text-pink-400 rounded-2xl flex items-center justify-center border border-pink-500/25">
+            ⚖️
+          </div>
+          <span className="text-base font-black text-pink-300">שקילה רפואית</span>
+        </button>
+      );
+      case 'vomiting': return (
+        <button
+          onPointerDown={reorderMode ? undefined : (e) => handlePointerDownButton('vomiting', e)}
+          onPointerUp={reorderMode ? undefined : (e) => handlePointerUpButton('vomiting', e)}
+          onPointerMove={reorderMode ? undefined : handlePointerMoveButton}
+          onPointerCancel={reorderMode ? undefined : handlePointerCancelButton}
+          onPointerLeave={reorderMode ? undefined : handlePointerCancelButton}
+          onContextMenu={reorderMode ? undefined : (e) => e.preventDefault()}
+          className={`relative bg-slate-900/90 border rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/85 transition-all min-h-[120px] select-none touch-none focus:outline-none cursor-pointer ${
+            !reorderMode && activePressButton === 'vomiting'
+              ? 'scale-95 border-rose-500 bg-slate-850 shadow-rose-500/10'
+              : 'border-slate-800 hover:border-rose-550/45'
+          }`}
+        >
+          <div className="w-11 h-11 bg-rose-550/30 text-rose-400 rounded-2xl flex items-center justify-center border border-rose-500/20">
+            🤮
+          </div>
+          <div className="text-center">
+            <span className="text-base font-black text-rose-300 block">פליטות / הקאות</span>
+            <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
+              קליק: מהיר 🤮 | החזק: מלא 📋
+            </span>
+          </div>
+        </button>
+      );
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div dir="rtl" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 font-sans">
@@ -2773,8 +3030,8 @@ export default function App() {
             
             {/* Quick Action Matrix - The Big 5 Buttons (Reachability Optimized) */}
             <section className="grid grid-cols-2 gap-3 mt-1">
-              
-              {/* Inline Quick Vomiting Options panel */}
+
+              {/* Inline Quick Vomiting Options panel — not reorderable */}
               <AnimatePresence>
                 {showQuickVomitingMenu && (
                   <motion.div
@@ -2789,14 +3046,13 @@ export default function App() {
                         <span className="animate-ping w-2 h-2 rounded-full bg-rose-500 block" />
                         רישום פליטה מהירה (הקלק לבחירה)
                       </span>
-                      <button 
+                      <button
                         onClick={() => setShowQuickVomitingMenu(false)}
                         className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={() => handleQuickVomitingLog('SMALL')}
@@ -2805,7 +3061,6 @@ export default function App() {
                         <span className="text-2xl">💧</span>
                         <span className="text-xs font-black text-slate-200">פליטה קלה</span>
                       </button>
-                      
                       <button
                         onClick={() => handleQuickVomitingLog('MEDIUM')}
                         className="bg-slate-950 border border-slate-800/80 hover:border-amber-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
@@ -2813,7 +3068,6 @@ export default function App() {
                         <span className="text-2xl">💦</span>
                         <span className="text-xs font-black text-slate-200">פליטה בינונית</span>
                       </button>
-                      
                       <button
                         onClick={() => handleQuickVomitingLog('LARGE')}
                         className="bg-slate-950 border border-slate-800/80 hover:border-rose-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
@@ -2826,7 +3080,7 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {/* Inline Quick Diaper Options panel (pops up when clicking Diaper quickly, shown above) */}
+              {/* Inline Quick Diaper Options panel — not reorderable */}
               <AnimatePresence>
                 {showQuickDiaperMenu && (
                   <motion.div
@@ -2841,14 +3095,13 @@ export default function App() {
                         <span className="animate-ping w-2 h-2 rounded-full bg-teal-500 block" />
                         רישום חיתול מהיר (הקלק לבחירה)
                       </span>
-                      <button 
+                      <button
                         onClick={() => setShowQuickDiaperMenu(false)}
                         className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={() => handleQuickDiaperLog('PEE')}
@@ -2857,7 +3110,6 @@ export default function App() {
                         <span className="text-2xl">💦</span>
                         <span className="text-xs font-black text-slate-200">פיפי בלבד</span>
                       </button>
-                      
                       <button
                         onClick={() => handleQuickDiaperLog('POO')}
                         className="bg-slate-950 border border-slate-800/80 hover:border-amber-650 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
@@ -2865,7 +3117,6 @@ export default function App() {
                         <span className="text-2xl">💩</span>
                         <span className="text-xs font-black text-slate-200">קקי בלבד</span>
                       </button>
-                      
                       <button
                         onClick={() => handleQuickDiaperLog('BOTH')}
                         className="bg-slate-950 border border-slate-800/80 hover:border-teal-550 hover:bg-slate-900/50 p-3.5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
@@ -2877,91 +3128,8 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              
-              {/* 1. Bottle/Nutrition Sheet Trigger with Quick vs Long press */}
-              <button 
-                onPointerDown={(e) => handlePointerDownButton('meal', e)}
-                onPointerUp={(e) => handlePointerUpButton('meal', e)}
-                onPointerMove={handlePointerMoveButton}
-                onPointerCancel={handlePointerCancelButton}
-                onPointerLeave={handlePointerCancelButton}
-                onContextMenu={(e) => e.preventDefault()}
-                className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
-                  activePressButton === 'meal' 
-                    ? 'scale-95 border-blue-500 bg-slate-850 shadow-blue-500/10' 
-                    : 'border-slate-800 hover:border-blue-500/40'
-                }`}
-              >
-                <div className="w-11 h-11 bg-blue-550/30 text-blue-400 rounded-2xl flex items-center justify-center border border-blue-500/20">
-                  🍼
-                </div>
-                <div className="text-center">
-                  <span className="text-base font-black text-blue-300 block">ארוחה / בקבוק</span>
-                  
-                  {/* Summary row */}
-                  <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[10px] font-bold">
-                    <span className="text-blue-400">🍼 בקבוקים: {todayBottlesCount}</span>
-                    <span className="text-slate-600">|</span>
-                    <span className="text-sky-400">🤱 הנקות: {todayBreastCount}</span>
-                  </div>
 
-                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
-                    קליק: ארוחה מהירה 🍼 | החזק: מלא 🤱
-                  </span>
-
-                  {/* Countdown display */}
-                  <div className={`mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-black font-mono inline-block ${
-                    getFeedingCountdown().isOverdue 
-                      ? openSleepSession 
-                        ? 'bg-emerald-500 text-slate-950 border border-emerald-400' 
-                        : 'bg-red-500 text-white animate-pulse' 
-                      : 'bg-slate-950 text-slate-300 border border-slate-800/80'
-                  }`}>
-                    {getFeedingCountdown().isOverdue 
-                      ? openSleepSession 
-                        ? 'הגיע זמן האכלה (תינוק ישן 💤)' 
-                        : 'האכלה דחופה! 🚨' 
-                      : `האכלה הבאה: ${getFeedingCountdown().display}`}
-                  </div>
-                </div>
-              </button>
-
-              {/* 2. Diaper Sheet Trigger with Quick vs Long press */}
-              <button 
-                onPointerDown={(e) => handlePointerDownButton('diaper', e)}
-                onPointerUp={(e) => handlePointerUpButton('diaper', e)}
-                onPointerMove={handlePointerMoveButton}
-                onPointerCancel={handlePointerCancelButton}
-                onPointerLeave={handlePointerCancelButton}
-                onContextMenu={(e) => e.preventDefault()}
-                className={`relative bg-slate-900/90 border rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 shadow-md active:bg-slate-800/85 transition-all min-h-[125px] select-none touch-none focus:outline-none cursor-pointer ${
-                  activePressButton === 'diaper' 
-                    ? 'scale-95 border-teal-500 bg-slate-850 shadow-teal-500/10' 
-                    : 'border-slate-800 hover:border-teal-500/40'
-                }`}
-              >
-                <div className="w-11 h-11 bg-teal-550/30 text-teal-400 rounded-2xl flex items-center justify-center border border-teal-500/20">
-                  🧷
-                </div>
-                <div className="text-center">
-                  <span className="text-base font-black text-teal-300 block">החלפת חיתול</span>
-
-                  {/* Summary row */}
-                  <div className="flex gap-1.5 justify-center mt-0.5 mb-1 text-[9px] font-bold">
-                    <span className="text-blue-400">💦 {todayPeeCount}</span>
-                    <span className="text-slate-600">|</span>
-                    <span className="text-amber-500">💩 {todayPooCount}</span>
-                    <span className="text-slate-600">|</span>
-                    <span className="text-teal-400">💦💩 {todayBothCount}</span>
-                  </div>
-
-                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
-                    קליק: מהיר 💦💩 | החזק: מלא 📋
-                  </span>
-                </div>
-              </button>
-
-              {/* Awake Time Tracker Widget - ONLY visible when awake and > dynamic limit */}
+              {/* Awake Time Tracker Widget — fixed position, not reorderable */}
               {!openSleepSession && awakeMinutes > awakeWidgetMinMinutes && (
                 <div className={`col-span-2 rounded-3xl p-4 border flex items-center justify-between shadow-md transition-all duration-500 select-none ${
                   awakeMinutes <= okayAwakeLimit
@@ -2995,102 +3163,46 @@ export default function App() {
                       </h3>
                     </div>
                   </div>
-                  
                   <div className="text-left">
                     <span className="text-[10px] text-slate-400 font-bold block mb-0.5">משך זמן ער</span>
                     <span className="text-base font-mono font-black">
-                      {awakeHours > 0 
-                        ? `${awakeHours}ש׳ ${awakeMins}ד׳` 
+                      {awakeHours > 0
+                        ? `${awakeHours}ש׳ ${awakeMins}ד׳`
                         : `${awakeMins} דק׳`}
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* 3. Sleep State Machine - Big Master Button */}
-              <button 
-                onPointerDown={(e) => handlePointerDownButton('sleep', e)}
-                onPointerUp={(e) => handlePointerUpButton('sleep', e)}
-                onPointerMove={handlePointerMoveButton}
-                onPointerCancel={handlePointerCancelButton}
-                onPointerLeave={handlePointerCancelButton}
-                onContextMenu={(e) => e.preventDefault()}
-                className={`col-span-2 rounded-3xl p-5 flex items-center justify-between shadow-lg transition-all min-h-[90px] select-none touch-none focus:outline-none cursor-pointer ${
-                  activePressButton === 'sleep'
-                    ? 'scale-[0.97] bg-slate-800/80'
-                    : ''
-                } ${
-                  openSleepSession 
-                    ? 'bg-rose-950/70 border border-rose-500/50 text-rose-100 shadow-rose-950/20' 
-                    : 'bg-indigo-650 hover:bg-indigo-700 text-white border border-indigo-500/40'
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl shrink-0 ${
-                    openSleepSession ? 'bg-rose-500 text-white' : 'bg-white text-indigo-600'
-                  }`}>
-                    <Moon className={`w-7 h-7 ${openSleepSession ? 'animate-pulse' : ''}`} />
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xl font-black block">
-                      {openSleepSession ? 'להעיר תינוק ⏰' : 'השכבה לישון 💤'}
-                    </span>
-                    <span className="text-[10px] opacity-80 block mt-0.5 leading-tight font-medium">
-                      {openSleepSession ? 'קליק מהיר להעיר ⏰ | החזק להגדרת שינה' : 'קליק מהיר: שינה מהירה עכשיו 💤 | החזק: בחירת מיקום 📋'}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-left font-mono font-bold text-lg">
-                  {openSleepSession ? <SleepTimer startAt={openSleepSession.sleep?.startAt || openSleepSession.timestamp} /> : 'ער'}
-                </div>
-              </button>
+              {/* Reorder mode toggle */}
+              <div className="col-span-2 flex justify-start">
+                <button
+                  onClick={reorderMode ? handleSaveQuickActionOrder : () => setReorderMode(true)}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
+                    reorderMode
+                      ? 'bg-amber-950 text-amber-300 border-amber-900/50 hover:bg-amber-900'
+                      : 'bg-slate-900 text-slate-500 border-slate-800/50 hover:bg-slate-800'
+                  }`}
+                >
+                  {reorderMode ? '✓ סיום ושמירה' : '⠿ ערוך פריסה'}
+                </button>
+              </div>
 
-              {/* 4. Activity Button */}
-              <button 
-                onClick={() => openAddSheet('activity')}
-                className="bg-slate-900/90 border border-slate-800 hover:border-amber-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
-              >
-                <div className="w-12 h-12 bg-amber-550/35 text-amber-400 rounded-2xl flex items-center justify-center border border-amber-500/25">
-                  🎨
-                </div>
-                <span className="text-base font-black text-amber-300">תיעוד פעילות</span>
-              </button>
-
-              {/* 5. Weight Button */}
-              <button 
-                onClick={() => openAddSheet('weight')}
-                className="bg-slate-900/90 border border-slate-800 hover:border-pink-500/60 rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/80 transition-all min-h-[120px] focus:outline-none"
-              >
-                <div className="w-12 h-12 bg-pink-550/35 text-pink-400 rounded-2xl flex items-center justify-center border border-pink-500/25">
-                  ⚖️
-                </div>
-                <span className="text-base font-black text-pink-300">שקילה רפואית</span>
-              </button>
-
-              {/* 6. Vomiting Button */}
-              <button 
-                onPointerDown={(e) => handlePointerDownButton('vomiting', e)}
-                onPointerUp={(e) => handlePointerUpButton('vomiting', e)}
-                onPointerMove={handlePointerMoveButton}
-                onPointerCancel={handlePointerCancelButton}
-                onPointerLeave={handlePointerCancelButton}
-                onContextMenu={(e) => e.preventDefault()}
-                className={`relative bg-slate-900/90 border rounded-3xl p-5 flex flex-col items-center justify-center gap-3 shadow-md active:bg-slate-800/85 transition-all min-h-[120px] select-none touch-none focus:outline-none cursor-pointer ${
-                  activePressButton === 'vomiting' 
-                    ? 'scale-95 border-rose-500 bg-slate-850 shadow-rose-500/10' 
-                    : 'border-slate-800 hover:border-rose-550/45'
-                }`}
-              >
-                <div className="w-11 h-11 bg-rose-550/30 text-rose-400 rounded-2xl flex items-center justify-center border border-rose-500/20">
-                  🤮
-                </div>
-                <div className="text-center">
-                  <span className="text-base font-black text-rose-300 block">פליטות / הקאות</span>
-                  <span className="text-[9px] text-slate-500 font-bold block tracking-tight">
-                    קליק: מהיר 🤮 | החזק: מלא 📋
-                  </span>
-                </div>
-              </button>
+              {/* Reorderable Quick Action Buttons */}
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <SortableContext items={quickActionOrder} strategy={rectSortingStrategy}>
+                  {quickActionOrder.map(id => (
+                    <SortableQuickAction
+                      key={id}
+                      id={id}
+                      reorderMode={reorderMode}
+                      colSpan2={id === 'sleep'}
+                    >
+                      {renderQuickButton(id)}
+                    </SortableQuickAction>
+                  ))}
+                </SortableContext>
+              </DndContext>
 
             </section>
 
