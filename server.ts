@@ -21,7 +21,7 @@ declare module 'express-session' {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 if (!process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET environment variable is required');

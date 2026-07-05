@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { BabyEvent, UserSettings, ParentType, EventType, SleepLocationType, DiaperContentType, VomitingSizeType, PooColorType, QualityTier, TIER_MAP, classifyNutrition, classifySleep, classifyDiaper, classifyWeight } from './types';
 import { InstallAppButton } from './components/InstallAppButton';
+import { DateTime24 } from './components/DateTime24';
 
 const DiaperIcon = ({ className = "w-5 h-5", strokeWidth = 2 }: { className?: string, strokeWidth?: number }) => (
   <svg 
@@ -411,6 +412,7 @@ export default function App() {
   const [diaperStats, setDiaperStats] = useState<any[]>([]);
   const [weightStats, setWeightStats] = useState<any[]>([]);
   const [dashboardDays, setDashboardDays] = useState<number>(1);
+  const [timelineDays, setTimelineDays] = useState<number>(1); // rolling day window; never persisted → resets to 1 on app open
 
   // Timer state for in-progress sleep
 
@@ -1413,7 +1415,7 @@ export default function App() {
     const background = opts?.background ?? false;
     try {
       if (!background) setLoading(true);
-      const res = await fetch('/api/events?limit=60');
+      const res = await fetch('/api/events?limit=400');
       if (res.status === 401) {
         handleUnauthorized();
         return;
@@ -3183,13 +3185,31 @@ export default function App() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-black text-slate-100">📋 ציר הזמן ההיסטורי</h2>
-              <button 
-                onClick={fetchEvents}
-                className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-xl"
-                title="רענן"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="bg-slate-950 p-1 rounded-2xl border border-slate-850 flex gap-1">
+                  {[1, 7, 14].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setTimelineDays(days)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        timelineDays === days
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-300'
+                      }`}
+                    >
+                      {days === 1 ? 'היום' : `${days} ימים`}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={fetchEvents}
+                  className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-xl"
+                  title="רענן"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {loading ? (
@@ -3234,7 +3254,11 @@ export default function App() {
                   </div>
                 )}
 
-                {events.filter(e => e.id !== openSleepSession?.id).map((e) => {
+                {events.filter(e => {
+                  if (e.id === openSleepSession?.id) return false;
+                  const cutoffMs = Date.now() - timelineDays * 24 * 60 * 60 * 1000;
+                  return new Date(e.timestamp).getTime() >= cutoffMs;
+                }).map((e) => {
                   // Style based on eventType
                   let icon: React.ReactNode = '🍼';
                   let borderClass = 'border-r-4 border-r-blue-500';
@@ -5454,11 +5478,9 @@ export default function App() {
                       {/* Sleep Start Time Picker (Always visible) */}
                       <div>
                         <label className="block text-xs font-black text-slate-400 mb-1">שעת תחילת השינה</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customTimestamp}
-                          onChange={(e) => setCustomTimestamp(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                          onChange={setCustomTimestamp}
                         />
                       </div>
 
@@ -5491,21 +5513,17 @@ export default function App() {
 
                       <div>
                         <label className="block text-xs font-black text-slate-400 mb-1">💤 שעת תחילת שינה (הלך לישון)</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customSleepStartAt}
-                          onChange={(e) => setCustomSleepStartAt(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                          onChange={setCustomSleepStartAt}
                         />
                       </div>
 
                       <div>
                         <label className="block text-xs font-black text-slate-400 mb-1">⏰ שעת התעוררות (הקיץ משנתו)</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customSleepEndAt}
-                          onChange={(e) => setCustomSleepEndAt(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                          onChange={setCustomSleepEndAt}
                         />
                       </div>
 
@@ -6154,21 +6172,17 @@ export default function App() {
                     <div className="space-y-4 text-right">
                       <div>
                         <label className="block text-xs font-black text-slate-400 mb-1">💤 שעת תחילת שינה (הלך לישון)</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customSleepStartAt}
-                          onChange={(e) => setCustomSleepStartAt(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                          onChange={setCustomSleepStartAt}
                         />
                       </div>
 
                       <div>
                         <label className="block text-xs font-black text-slate-400 mb-1">⏰ שעת התעוררות (הקיץ משנתו)</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customSleepEndAt}
-                          onChange={(e) => setCustomSleepEndAt(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right font-medium"
+                          onChange={setCustomSleepEndAt}
                         />
                       </div>
 
@@ -6210,11 +6224,9 @@ export default function App() {
                     {!(activeSheet === 'edit' && editingEvent?.eventType === 'SLEEP') && (
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 mb-1">שעת האירוע</label>
-                        <input
-                          type="datetime-local"
+                        <DateTime24
                           value={customTimestamp}
-                          onChange={(e) => setCustomTimestamp(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none text-right"
+                          onChange={setCustomTimestamp}
                         />
                       </div>
                     )}
