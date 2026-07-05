@@ -325,6 +325,36 @@ const getSleepCycleAnalysis = (durationMinutes: number | undefined) => {
   }
 };
 
+// Isolated live sleep timer. Owning its own 1-second interval + state here means
+// the tick re-renders ONLY this tiny node, not the whole 6k-line App tree.
+const SleepTimer = ({ startAt }: { startAt?: string }) => {
+  const [label, setLabel] = useState('00:00:00');
+  useEffect(() => {
+    if (!startAt) {
+      setLabel('00:00:00');
+      return;
+    }
+    const update = () => {
+      const diffMs = Date.now() - new Date(startAt).getTime();
+      if (diffMs < 0) {
+        setLabel('00:00:00');
+        return;
+      }
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      const secs = totalSecs % 60;
+      setLabel(
+        `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      );
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [startAt]);
+  return <>{label}</>;
+};
+
 export default function App() {
   // App state
   const [activeTab, setActiveTab] = useState<'log' | 'timeline' | 'dashboards' | 'settings'>('log');
@@ -383,7 +413,6 @@ export default function App() {
   const [dashboardDays, setDashboardDays] = useState<number>(1);
 
   // Timer state for in-progress sleep
-  const [sleepDurationStr, setSleepDurationStr] = useState<string>('00:00');
 
   // Input states for form entry
   const [bottleFeedType, setBottleFeedType] = useState<'BOTTLE' | 'BREAST'>('BREAST');
@@ -484,6 +513,37 @@ export default function App() {
   const [pressStartTimestamp, setPressStartTimestamp] = useState<number>(0);
   const [pressStartPos, setPressStartPos] = useState<{ x: number, y: number } | null>(null);
   const [activePressButton, setActivePressButton] = useState<'meal' | 'diaper' | 'sleep' | 'vomiting' | null>(null);
+
+  const handleLogBioGaya = async () => {
+    if (checkAndRegisterDoubleSubmit('SUPPLEMENT')) {
+      showToast('ביו גאיה כבר נרשם לאחרונה!');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload: Partial<BabyEvent> = {
+        timestamp: new Date().toISOString(),
+        eventType: 'SUPPLEMENT',
+        loggedBy: activeParent,
+        supplement: { name: 'ביו גאיה' }
+      };
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast('ביו גאיה נרשם ✔️');
+        fetchEvents();
+      } else {
+        showToast('שגיאה בשמירת ביו גאיה');
+      }
+    } catch {
+      showToast('לא ניתן להתחבר לשרת');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleQuickMealLog = async () => {
     if (checkAndRegisterDoubleSubmit('NUTRITION')) {
@@ -745,7 +805,7 @@ export default function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isAuthenticated) {
         checkOpenSleepSession();
-        fetchEvents();
+        fetchEvents({ background: true });
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -760,37 +820,6 @@ export default function App() {
   useEffect(() => {
     return () => { clearTimeout(toastTimeoutRef.current ?? undefined); };
   }, []);
-
-  // Sync sleep session timer
-  useEffect(() => {
-    if (!openSleepSession) {
-      setSleepDurationStr('00:00:00');
-      return;
-    }
-
-    const updateTimer = () => {
-      const start = new Date(openSleepSession.sleep?.startAt || openSleepSession.timestamp);
-      const diffMs = Date.now() - start.getTime();
-      if (diffMs < 0) {
-        setSleepDurationStr('00:00:00');
-        return;
-      }
-      const totalSecs = Math.floor(diffMs / 1000);
-      const hours = Math.floor(totalSecs / 3600);
-      const mins = Math.floor((totalSecs % 3600) / 60);
-      const secs = totalSecs % 60;
-      
-      const hoursStr = hours.toString().padStart(2, '0');
-      const minsStr = mins.toString().padStart(2, '0');
-      const secsStr = secs.toString().padStart(2, '0');
-      
-      setSleepDurationStr(`${hoursStr}:${minsStr}:${secsStr}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000); // Live tick every 1 second
-    return () => clearInterval(interval);
-  }, [openSleepSession]);
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
@@ -977,6 +1006,11 @@ export default function App() {
     return hour >= 12 && hour < 16;
   };
 
+  const isSupplementSlotTime = () => {
+    const hour = new Date(currentTime).getHours();
+    return hour >= 6 && hour < 22;
+  };
+
   const isBathSlotTime = () => {
     const date = new Date(currentTime);
     const hour = date.getHours();
@@ -1006,10 +1040,10 @@ export default function App() {
       
       const finalDuration = Math.max(duration, activeDuration);
       
-      // Midday check (starts between 11:00 and 15:15)
-      const isMidday = startHour >= 11 && startHour < 16;
+      // Noon nap window: starts 12:00–16:00, must reach 75 min (1h 15m)
+      const isMidday = startHour >= 12 && startHour < 16;
       
-      return isMidday && finalDuration >= 45;
+      return isMidday && finalDuration >= 75;
     });
     
     if (nap) return true;
@@ -1019,9 +1053,9 @@ export default function App() {
     if (openSleepSession && openSleepSession.sleep) {
       const start = new Date(openSleepSession.sleep.startAt);
       const startHour = start.getHours();
-      const isMidday = startHour >= 11 && startHour < 16;
+      const isMidday = startHour >= 12 && startHour < 16;
       const activeDurationMin = Math.floor((currentTime - start.getTime()) / (1000 * 60));
-      if (isMidday && activeDurationMin >= 30) {
+      if (isMidday && activeDurationMin >= 60) {
         return true;
       }
     }
@@ -1375,9 +1409,10 @@ export default function App() {
     }
   }
 
-  async function fetchEvents() {
+  async function fetchEvents(opts?: { background?: boolean }) {
+    const background = opts?.background ?? false;
     try {
-      setLoading(true);
+      if (!background) setLoading(true);
       const res = await fetch('/api/events?limit=60');
       if (res.status === 401) {
         handleUnauthorized();
@@ -1390,7 +1425,7 @@ export default function App() {
     } catch (e) {
       showToast('שגיאה בטעינת הנתונים מהשרת');
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
 
@@ -2055,6 +2090,9 @@ export default function App() {
   const todayPumpingTotalLeft = todayPumpingEvents.reduce((acc, e) => acc + (e.pumping?.leftAmountMl || 0), 0);
   const todayPumpingTotalRight = todayPumpingEvents.reduce((acc, e) => acc + (e.pumping?.rightAmountMl || 0), 0);
   const todayPumpingTotal = todayPumpingTotalLeft + todayPumpingTotalRight;
+
+  const bioGayaGivenToday = babyDayEvents.some(e => e.eventType === 'SUPPLEMENT');
+  const bioGayaGivenEvent = babyDayEvents.find(e => e.eventType === 'SUPPLEMENT');
 
   const getTodaySleepStats = () => {
     const sleepEvents = babyDayEvents.filter(e => e.eventType === 'SLEEP');
@@ -2933,7 +2971,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="text-left font-mono font-bold text-lg">
-                  {openSleepSession ? sleepDurationStr : 'ער'}
+                  {openSleepSession ? <SleepTimer startAt={openSleepSession.sleep?.startAt || openSleepSession.timestamp} /> : 'ער'}
                 </div>
               </button>
 
@@ -3117,6 +3155,26 @@ export default function App() {
                 </div>
               )}
             </section>
+
+            {/* Bio Gaya Daily Supplement Card */}
+            {bioGayaGivenToday && bioGayaGivenEvent && (
+              <section className="bg-emerald-950/30 border border-emerald-900/40 rounded-3xl p-4 shadow-sm mt-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400 text-sm">💧</span>
+                    <h3 className="text-xs font-black text-slate-100">ביו גאיה</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-900/50">
+                      ✓ ניתן ב-{getHeberwTimeStr(bioGayaGivenEvent.timestamp)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      {getParentDisplayName(bioGayaGivenEvent.loggedBy)}
+                    </span>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         )}
 
@@ -3183,6 +3241,7 @@ export default function App() {
                   let bgClass = 'bg-blue-950/20';
                   let title = '';
                   let details = '';
+                  let isNoonNapBadge = false;
 
                   if (e.eventType === 'NUTRITION' && e.nutrition) {
                     if (e.nutrition.feedType === 'BOTTLE') {
@@ -3254,6 +3313,27 @@ export default function App() {
                     } else {
                       details += ` • עדיין ישן`;
                     }
+
+                    isNoonNapBadge = (() => {
+                      if (!e.sleep?.endAt || !e.sleep.durationMinutes) return false;
+                      const napStart = new Date(e.sleep.startAt || e.timestamp);
+                      const napHour = napStart.getHours();
+                      if (napHour < 12 || napHour >= 16 || e.sleep.durationMinutes < 75) return false;
+                      const napDay = napStart.toDateString();
+                      const firstQualifying = events
+                        .filter(ev => {
+                          if (ev.eventType !== 'SLEEP' || !ev.sleep?.endAt || !ev.sleep.durationMinutes) return false;
+                          const evStart = new Date(ev.sleep.startAt || ev.timestamp);
+                          return (
+                            evStart.toDateString() === napDay &&
+                            evStart.getHours() >= 12 &&
+                            evStart.getHours() < 16 &&
+                            ev.sleep.durationMinutes >= 75
+                          );
+                        })
+                        .sort((a, b) => new Date(a.sleep!.startAt).getTime() - new Date(b.sleep!.startAt).getTime())[0];
+                      return firstQualifying?.id === e.id;
+                    })();
                   } else if (e.eventType === 'ACTIVITY' && e.activity) {
                     icon = '🎨';
                     borderClass = 'border-r-4 border-r-amber-500';
@@ -3282,6 +3362,12 @@ export default function App() {
                     title = 'תיעוד פליטה / הקאה';
                     const sizeText = e.vomiting.size === 'SMALL' ? 'פליטה קלה 💧' : e.vomiting.size === 'MEDIUM' ? 'פליטה בינונית 💦' : 'הקאה גדולה ⚠️';
                     details = `דרגה: ${sizeText}`;
+                  } else if (e.eventType === 'SUPPLEMENT' && e.supplement) {
+                    icon = '💧';
+                    borderClass = 'border-r-4 border-r-emerald-500';
+                    bgClass = 'bg-emerald-950/15';
+                    title = e.supplement.name;
+                    details = `נרשם ע״י ${getParentDisplayName(e.loggedBy)}`;
                   }
 
                   const qualityTier = getEventQualityTier(e, events);
@@ -3330,6 +3416,12 @@ export default function App() {
                         <p className="text-xs text-slate-300 font-medium mt-1 leading-relaxed">
                           {details}
                         </p>
+
+                        {isNoonNapBadge && (
+                          <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-black text-indigo-300 bg-indigo-950/60 border border-indigo-800/50 px-2.5 py-0.5 rounded-full">
+                            🌙 שנת צהריים גדולה
+                          </span>
+                        )}
 
                         {e.eventType === 'NUTRITION' && e.nutrition?.feedType === 'BREAST' && e.nutrition.topUp && (
                           <span className="inline-block mt-1.5 text-[10px] text-slate-400 font-bold bg-slate-950/60 px-2 py-0.5 rounded-full border border-slate-850/50">
@@ -6224,8 +6316,32 @@ export default function App() {
 
       </nav>
 
+      {/* Floating Bio Gaya Supplement Reminder Pill */}
+      {isSupplementSlotTime() && !bioGayaGivenToday && (
+        <div className="fixed bottom-36 left-4 z-30">
+          <motion.div
+            initial={{ scale: 0, y: 50 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0, y: 50 }}
+            className="flex items-center gap-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-black px-4 py-3 rounded-full shadow-2xl border border-emerald-500/30 text-xs"
+          >
+            <span className="text-sm">💧</span>
+            <span>ביו גאיה — טרם ניתן</span>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleLogBioGaya}
+              className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white font-black px-3 py-1.5 rounded-full text-[11px] transition-all cursor-pointer mr-1"
+            >
+              <Check className="w-3 h-3" />
+              נתתי
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       {/* Floating Big Nap Warning Pill */}
-      {!isBigNapRecorded() && !dismissedBigNapWarning && (
+      {isNapSlotTime() && !isBigNapRecorded() && !dismissedBigNapWarning && (
         <div className="fixed bottom-24 right-4 z-30">
           <motion.button
             type="button"

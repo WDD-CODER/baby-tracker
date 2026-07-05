@@ -5,7 +5,7 @@
 
 export type ParentType = 'PARENT_A' | 'PARENT_B';
 
-export type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT' | 'PUMPING' | 'VOMITING';
+export type EventType = 'NUTRITION' | 'DIAPER' | 'SLEEP' | 'ACTIVITY' | 'WEIGHT' | 'PUMPING' | 'VOMITING' | 'SUPPLEMENT';
 
 export interface BabyProfile {
   name: string;
@@ -89,6 +89,10 @@ export interface VomitingPayload {
   size: VomitingSizeType;
 }
 
+export interface SupplementPayload {
+  name: string;
+}
+
 export interface BabyEvent {
   id: string;
   timestamp: string; // ISO string
@@ -103,6 +107,7 @@ export interface BabyEvent {
   weight?: WeightPayload;
   pumping?: PumpingPayload;
   vomiting?: VomitingPayload;
+  supplement?: SupplementPayload;
   quickRecorded?: boolean;
 }
 

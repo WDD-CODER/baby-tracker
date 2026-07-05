@@ -7,10 +7,11 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import session from 'express-session';
+import compression from 'compression';
 import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import ExcelJS from 'exceljs';
-import { getSettings, saveSettings, getAllEvents, getOpenSleepSession, saveEvent, deleteEvent, clearAllEvents } from './server/db';
+import { getSettings, saveSettings, getAllEvents, getEventsPage, getEventById, getOpenSleepSession, saveEvent, deleteEvent, clearAllEvents } from './server/db';
 import { BabyEvent, EventType, UserSettings, SleepLocationType, ParentType } from './src/types';
 
 declare module 'express-session' {
@@ -25,6 +26,10 @@ const PORT = 3000;
 if (!process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET environment variable is required');
 }
+
+// gzip/brotli-compress all responses (JS/CSS/JSON). Biggest single load-time win
+// for the ~323 KB app bundle on mobile networks. Must precede routes and static.
+app.use(compression());
 
 app.use(express.json());
 
@@ -272,23 +277,17 @@ app.post('/api/sleep/toggle', async (req, res) => {
 
 app.get('/api/events', async (req, res) => {
   try {
-    const allEvents = await getAllEvents();
     const limit = parseInt(req.query.limit as string) || 20;
-    const offset = parseInt(req.query.cursor as string) || 0;
+    const cursorParam = req.query.cursor as string | undefined;
+    const typeParam = req.query.type as string | undefined;
 
-    // Filter by type if provided
-    let filteredEvents = allEvents;
-    if (req.query.type) {
-      filteredEvents = filteredEvents.filter(e => e.eventType === req.query.type);
-    }
-
-    const paginated = filteredEvents.slice(offset, offset + limit);
-    const hasMore = offset + limit < filteredEvents.length;
-
-    res.json({
-      events: paginated,
-      nextCursor: hasMore ? (offset + limit) : null
+    const { events, nextCursor } = await getEventsPage({
+      limit,
+      cursorTimestamp: cursorParam || undefined,
+      type: typeParam || undefined,
     });
+
+    res.json({ events, nextCursor });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch events' });
   }
@@ -335,8 +334,7 @@ app.post('/api/events', async (req, res) => {
 app.put('/api/events/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    const allEvents = await getAllEvents();
-    const existing = allEvents.find(e => e.id === id);
+    const existing = await getEventById(id);
 
     if (!existing) {
       res.status(404).json({ error: 'Event not found' });
@@ -938,7 +936,17 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    // Vite emits content-hashed asset filenames, so hashed assets can be pinned
+    // immutably forever. index.html must stay fresh so new deploys are picked up.
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    }));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

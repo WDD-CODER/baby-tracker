@@ -73,6 +73,18 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // Keep React + motion in stable vendor chunks so an app-code edit does
+          // not bust the browser cache for the (large, rarely-changing) libraries.
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom'],
+            'motion': ['motion'],
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
