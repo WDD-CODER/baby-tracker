@@ -27,6 +27,14 @@ if (!process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET environment variable is required');
 }
 
+// Render (and most PaaS) terminate TLS at a proxy and forward plain HTTP to the app.
+// Without this, express-session sees a non-secure connection and refuses to set the
+// `secure` cookie, so login never persists. Trusting the proxy lets Express read
+// X-Forwarded-Proto and treat the request as HTTPS.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // gzip/brotli-compress all responses (JS/CSS/JSON). Biggest single load-time win
 // for the ~323 KB app bundle on mobile networks. Must precede routes and static.
 app.use(compression());
