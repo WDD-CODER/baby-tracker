@@ -137,9 +137,11 @@ Reference: [Render Web Services docs](https://render.com/docs/web-services)
 | **Region** | `Oregon (US West)` — or closest to Israel is Frankfurt but that's paid; Oregon is fine |
 | **Branch** | `main` |
 | **Runtime** | `Node` |
-| **Build Command** | `npm install && npm run build` |
+| **Build Command** | `npm install --include=dev && npm run build` |
 | **Start Command** | `npm start` |
 | **Instance Type** | `Free` |
+
+> **Why `--include=dev`?** The build tools (`vite-plugin-pwa`, `esbuild`, `tailwindcss`, `typescript`) live in `devDependencies`. Because we set `NODE_ENV=production` below, npm skips devDependencies by default and the Vite build fails with `Cannot find package 'vite-plugin-pwa'`. The `--include=dev` flag forces them to install for the build while `NODE_ENV=production` still governs runtime.
 
 6. Click **Advanced** and add the following environment variables:
 
