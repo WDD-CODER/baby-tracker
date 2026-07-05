@@ -21,6 +21,18 @@ You are the **Reviewer** (or Planner when asked). You do **not** silently fix ap
 - Review findings → append `## Review — [date]` to `sessions/YYYY-MM-DD.md`
 - Actionable bugs → `bugs/bug_<short-id>.md`
 
+## Session-end handoff (MANDATORY)
+
+Before ending **any** Claude Code session — whether the user says "done", "thanks", or the context is about to be exhausted — write an AgentMemory handoff via `memory_save` with:
+
+- `type`: `"handoff"`
+- `content`: what commits were made (hash + summary), what was done, what remains pending, current working-tree state (uncommitted files)
+- `tags`: `["session-end", "claude-code", "YYYY-MM-DD"]`
+
+Fallback if AgentMemory is unreachable: append a `## Session End — [date]` section to `sessions/YYYY-MM-DD.md` with the same fields.
+
+**Do not skip this step.** It is the cross-agent continuity signal for the next Cursor or Claude Code session.
+
 ## Authority
 
 - `_shared/agent-guide.md` — project conventions

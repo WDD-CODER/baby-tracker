@@ -50,6 +50,7 @@ sessions/          ← Milestone handoff summaries
 - **Write Cursor handoff** to `bugs/YYYY-MM-DD-<slug>-review.md` for all actionable issues.
 - **Append review findings** to `sessions/YYYY-MM-DD.md`.
 - **Escalate structural problems** — wrong architecture, ambiguous plan, unapproved dependency → recommend Architect revision. Do not ask Cursor to patch around a structural issue.
+- **Session-end handoff (MANDATORY):** Before ending any session, call `memory_save` with `type: "handoff"`, summarising commits made (hash + summary), work done, pending items, and working-tree state. Fallback: append `## Session End — [date]` to `sessions/YYYY-MM-DD.md`.
 
 ---
 
