@@ -1,6 +1,6 @@
 ---
 name: baby-tracker-handoff
-description: Mandatory end-of-milestone and post-commit handoff for Baby Tracker (Cursor Contractor). Invoke ALWAYS when a milestone finishes (success, partial, review stop, or 3-strike block) OR immediately after a successful git commit the human requested. Writes to AgentMemory first, falls back to sessions/ files. Never skip even if the execution prompt does not mention handoff.
+description: Mandatory end-of-milestone and post-commit handoff for Baby Tracker (Cursor Contractor). Invoke ALWAYS when a milestone finishes (success, partial, review stop, or 3-strike block) OR immediately after a successful git commit the human requested. Writes to AgentMemory first, falls back to sessions/ files. Never skip even if the execution prompt does not mention handoff. Commits use safe-commit-push (worktree-aware). When not on primary main, include Worktree context — see baby-tracker-parallel-worktree pointer.
 ---
 
 # Baby Tracker — Handoff (Contractor)
@@ -53,13 +53,15 @@ If `memory_save` fails, errors, or AgentMemory is unreachable → use the file f
 5. **Verification:** `npm run lint` / `npm run build` / manual — pass or fail with error excerpt
 6. **Visual check:** where in the app to look, what changed visually (before → after); or explicit "no visible change yet" for types-only milestones
 7. **Next:** what the human or next milestone should do
+8. **Worktree context** (if not primary `baby-tracker/` on `main`): path, branch, vs `main`, whether `localhost:3000` shows changes yet — see `baby-tracker-parallel-worktree` pointer; commit flow is `safe-commit-push`
 
 ### Steps
 
 1. Build the summary using the template below.
 2. Call `memory_save` (primary).
 3. Append the same summary to `sessions/YYYY-MM-DD.md` (create or append; use today's date in `YYYY-MM-DD`). Use one `## Milestone N — [title]` section per milestone.
-4. Tell the user: handoff destination, one-line status, and repeat the **👀 Visual check** block from the handoff (human-facing — do not bury it only in AgentMemory).
+4. **Plan write-off (only when human has approved):** If the human confirmed the milestone passed review in this turn (`milestone N approved`, `mark M[N] complete`, etc.), update `plans/[active].md` and source-audit `DONE` markers per `.cursor/rules/core.mdc`. Do **not** write off the plan at execution-only handoff.
+5. Tell the user: handoff destination, one-line status, and repeat the **👀 Visual check** block from the handoff (human-facing — do not bury it only in AgentMemory).
 
 ### Template (AgentMemory `content` and session file body)
 
@@ -88,6 +90,15 @@ If `memory_save` fails, errors, or AgentMemory is unreachable → use the file f
 
 ### Next
 - ...
+
+### Worktree context
+*(omit this section when working in primary `baby-tracker/` on `main`)*
+| Field | Value |
+|-------|-------|
+| Path | … |
+| Branch | … |
+| vs main | ahead N / synced / behind |
+| On localhost:3000 yet? | No until merged to main \| Yes (primary) |
 ```
 
 ---
@@ -166,6 +177,7 @@ The bug file must already be marked `DONE` before handoff — handoff does not r
 **Message:** [commit subject line]
 **Hash:** [full hash]
 **Branch:** [current branch if known]
+**Worktree:** [primary `baby-tracker/` | parallel path — if applicable]
 
 ### Files in commit
 - [from git show --stat]

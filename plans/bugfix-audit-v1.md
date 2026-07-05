@@ -580,7 +580,7 @@ Execute ONLY Milestone [N] from plans/bugfix-audit-v1.md.
 
 - Read ONLY the files listed under "Read ONLY" for that milestone. Do not open any other file.
 - Follow the changes exactly as specified. Do not refactor surrounding code.
-- Do NOT mark the milestone complete in the plan file.
+- Do NOT mark the milestone complete in the plan file at end of execution — wait for human approval after review (`milestone N approved` / `mark M[N] complete`).
 - Do NOT start the next milestone. One milestone, then STOP.
 - 3-strike rule: max 3 fix attempts within scoped files. On 3rd failure, write bugs/bug_<id>.md and stop.
 - BEFORE STOPPING: invoke baby-tracker-handoff skill (AgentMemory first, sessions/YYYY-MM-DD.md fallback).

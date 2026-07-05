@@ -63,7 +63,7 @@ For the target milestone N:
 1. Read the plan file. Find `### Milestone N` (or `## Milestone N`) section.
 2. **Scope:** Only touch files listed in that milestone. If the plan lists no files, infer from the milestone description but stay minimal.
 3. **Conventions:** `_shared/agent-guide.md`, `.cursorrules`, `.cursor/rules/*.mdc`. Stack: `_shared/tech-stack.md` if present; else `plans/prd-gap-analysis.md` for design tokens.
-4. **Do NOT** edit the plan file to mark milestones complete.
+4. **Plan write-off timing:** Do **not** mark the milestone complete in `plans/` when execution finishes — hand off and wait for human + Reviewer approval. **After** the human explicitly approves (`milestone N approved`, `mark M[N] complete`, or equivalent), update the plan: milestone status `✅ DONE — [date]`, bug checkmarks, and plan header `Status:`. Mark source-audit bugs `DONE` in `bugs/2026-07-04-full-feature-audit.md` when applicable.
 5. **Do NOT** start milestone N+1.
 6. **Verify:** run the milestone's verify command if specified (default: `npm run lint`).
 7. **3-strike rule:** max 3 fix attempts in scoped files; then file `bugs/bug_<id>.md` and stop.

@@ -23,6 +23,8 @@ Claude.ai writes plans; Cursor saves and executes. **Do not ask the human to pas
 | **`/plan-intake`** + full plan text | Invoke `baby-tracker-plan-workflow` skill → save to `plans/` → execute **Milestone 1 only** → hand off → STOP |
 | **`/continue-plan`** or **`/next-milestone`** | Same skill → execute **next** milestone on active plan → hand off → STOP |
 | **`start milestone N`** | Same skill → execute **only** milestone N (if prior milestones done per handoff) |
+| **`milestone N approved`** / **`mark M[N] complete`** | After human confirms a milestone passed review → update `plans/[active].md` status (✅ + date) and matching `bugs/` audit entries → then STOP |
+| **commit / push / merge** | Invoke **`safe-commit-push`** skill — detects worktree vs primary; merge-back to `main` from primary folder only |
 
 After every milestone: invoke `baby-tracker-handoff`, then **STOP and wait**. End your message with:
 1. A **👀 Visual check** block (see below) — always, in plain language for the human.
@@ -53,7 +55,8 @@ Also include the same `### Visual check` section in AgentMemory + `sessions/` ha
 **Milestone execution (always, without repeating in the user message):**
 - Read the active plan in `plans/`
 - Touch only files scoped to that milestone
-- Do NOT mark milestones complete in the plan file
+- **Plan file write-off:** Do **not** mark a milestone complete in `plans/` at the end of execution — hand off and wait for human + Claude Code review first.
+- **After human approval** (explicit phrases: `milestone N approved`, `mark M[N] complete`, or equivalent confirmation that review passed): update the plan file — set the milestone status block to `✅ DONE — [date]`, tick individual bug lines where applicable, and refresh the plan header `Status:` line. Also mark matching bugs `DONE` in `bugs/2026-07-04-full-feature-audit.md` when that file is the source audit.
 - Verify: milestone verify command, or default `npm run lint`
 - 3-strike rule on scoped files → `bugs/bug_<id>.md` then stop
 
@@ -62,14 +65,14 @@ Also include the same `### Visual check` section in AgentMemory + `sessions/` ha
 - **ONE milestone per session.** Complete it, hand off, STOP. No self-chaining to the next.
 - **3-strike rule:** Max 3 attempts to fix a failing compile/lint error in scoped files. On 3rd failure: file `bugs/bug_<id>.md`, stop. No 4th attempt.
 - **Never hardcode secrets.** `.env` only. Never commit `.env` or any credential JSON.
-- **Commits are human-only.** Only run `git commit` when the human explicitly asks.
+- **Commits are human-only.** Only run `git commit` when the human explicitly asks — follow **`safe-commit-push`** (worktree-aware commit/push/merge).
 - **Stack authority:** Check `_shared/agent-guide.md` section 5 constraints before any tech decision. Forbidden without plan approval: Redux, Zustand, axios, react-query, react-router, chart.js, recharts, moment, lodash.
 
 ## Mandatory Handoff (no exception)
 
 When any milestone ends — success, partial, review stop, or 3-strike — invoke the `baby-tracker-handoff` skill (`.claude/skills/baby-tracker-handoff/SKILL.md`) before stopping:
 
-1. **Success / review stop:** `memory_save` to AgentMemory (`project: baby-tracker`). Fallback: append to `sessions/YYYY-MM-DD.md`. Include: plan + milestone number, files touched, what changed, **visual check** (where to look + before/after), lint/build result, what's next.
+1. **Success / review stop:** `memory_save` to AgentMemory (`project: baby-tracker`). Fallback: append to `sessions/YYYY-MM-DD.md`. Include: plan + milestone number, files touched, what changed, **visual check** (where to look + before/after), lint/build result, what's next, **worktree context** if applicable.
 2. **3-strike block:** Write `bugs/bug_<id>.md`. Write pointer to AgentMemory (fallback: session file). Stop.
 3. **Post-commit:** After a human-requested `git commit` succeeds, run post-commit handoff — hash, message, files, behavioral summary → AgentMemory (fallback: session file).
 

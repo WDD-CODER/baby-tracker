@@ -83,13 +83,16 @@ sessions/          ← Milestone handoff summaries
 - 3-strike rule: max 3 fix attempts, then `bugs/bug_<id>.md`, stop.
 - Mandatory handoff always: `baby-tracker-handoff` skill → AgentMemory first, `sessions/` fallback.
 - **Visual check in every milestone reply:** Cursor gives the human a short "where to look + before/after" (or "no visible change yet") — see `.cursor/rules/testing.mdc`.
+- **Commit / push / merge:** `safe-commit-push` skill — worktree detection, merge-back from primary folder.
+- **Worktree handoff fields:** `baby-tracker-parallel-worktree` pointer (paths only).
 
 ### Plan Execution Snippet (include in every plan's Cursor instructions)
 
 ```
 Execute ONLY Milestone [N] from plans/[plan]_v1.md.
 - Follow .cursor/rules/core.mdc and load other rules as needed by file context.
-- Do NOT mark the milestone complete in the plan file.
+- Do NOT mark the milestone complete in the plan file at end of execution — wait for human approval after review.
+- When human confirms milestone passed review (`milestone N approved` / `mark M[N] complete`): update plans/[plan]_v1.md status + audit bug DONE markers.
 - Do NOT start the next milestone. One milestone, then STOP.
 - 3-strike rule: max 3 fix attempts in scoped files, then bugs/bug_<id>.md, stop.
 - BEFORE STOPPING: invoke baby-tracker-handoff skill.

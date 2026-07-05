@@ -27,6 +27,7 @@ import {
   Activity, 
   Scale, 
   Sparkles,
+  AlertCircle,
   RefreshCw,
   X,
   PlusCircle,
@@ -281,6 +282,23 @@ const getDashboardTierStyle = (event: BabyEvent, allEvents: BabyEvent[]): React.
   };
 };
 
+type ToastVariant = 'success' | 'error';
+
+const inferToastVariant = (message: string): ToastVariant => {
+  const errorPatterns = [
+    'בוטלה למניעת',
+    'אירעה שגיאה',
+    'לא ניתן',
+    'לא יכול',
+    'לא מוצלח',
+    'שגיאה',
+    'תקלה',
+    'כבר נרשם',
+    '❌',
+  ];
+  return errorPatterns.some((pattern) => message.includes(pattern)) ? 'error' : 'success';
+};
+
 const getSleepCycleAnalysis = (durationMinutes: number | undefined) => {
   if (durationMinutes === undefined) {
     return {
@@ -369,6 +387,28 @@ export default function App() {
     return date.toLocaleString('sv-SE', { timeZone: 'Asia/Jerusalem' }).replace(' ', 'T').slice(0, 16);
   };
 
+  const applyOfferedAmount = (nextOffered: number) => {
+    const offered = Math.max(0, nextOffered);
+    setAmountOfferedMl(offered);
+    if (!consumedManuallyEdited) {
+      setAmountConsumedMl(offered);
+    }
+  };
+
+  const markConsumedManual = (nextConsumed: number) => {
+    setConsumedManuallyEdited(true);
+    setAmountConsumedMl(Math.max(0, nextConsumed));
+  };
+
+  const validateBottleNutritionAmounts = (): boolean => {
+    if (bottleFeedType !== 'BOTTLE') return true;
+    if (amountConsumedMl > amountOfferedMl) {
+      showToast('כמות שנצרכה לא יכולה להיות גדולה מכמות שהוצעה');
+      return false;
+    }
+    return true;
+  };
+
   const checkAndRegisterDoubleSubmit = (type: string): boolean => {
     const now = Date.now();
     const lastRefTime = lastLoggedTimestamps.current[type] || 0;
@@ -398,7 +438,7 @@ export default function App() {
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ message: string; undoEventId?: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; variant: ToastVariant; undoEventId?: string } | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Active Logging bottom sheets
@@ -421,6 +461,7 @@ export default function App() {
   const [bottleLiquidType, setBottleLiquidType] = useState<'EXPRESSED_MILK' | 'FORMULA'>('EXPRESSED_MILK');
   const [amountOfferedMl, setAmountOfferedMl] = useState<number>(120);
   const [amountConsumedMl, setAmountConsumedMl] = useState<number>(120);
+  const [consumedManuallyEdited, setConsumedManuallyEdited] = useState(false);
   const [breastSide, setBreastSide] = useState<'LEFT' | 'RIGHT' | 'BOTH'>('BOTH');
   const [breastDuration, setBreastDuration] = useState<number>(15);
   const [spitUp, setSpitUp] = useState<'NONE' | 'LIGHT' | 'HEAVY_VOMIT'>('NONE');
@@ -1294,11 +1335,12 @@ export default function App() {
     }
   }, [activeTab, dashboardDays]);
 
-  const showToast = (msg: string, options?: { undoEventId?: string }) => {
+  const showToast = (msg: string, options?: { undoEventId?: string; variant?: ToastVariant }) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
-    setToast({ message: msg, undoEventId: options?.undoEventId });
+    const variant = options?.variant ?? inferToastVariant(msg);
+    setToast({ message: msg, variant, undoEventId: options?.undoEventId });
     toastTimeoutRef.current = setTimeout(() => {
       setToast(null);
     }, options?.undoEventId ? 4000 : 3500);
@@ -1588,6 +1630,10 @@ export default function App() {
       return;
     }
 
+    if (activeSheet === 'bottle' && !validateBottleNutritionAmounts()) {
+      return;
+    }
+
     setSubmitting(true);
 
     const timestamp = customTimestamp ? new Date(customTimestamp).toISOString() : new Date().toISOString();
@@ -1626,7 +1672,7 @@ export default function App() {
       payload.eventType = 'ACTIVITY';
       payload.activity = {
         activityName: activityName || settings.customActivities[0] || 'משחק',
-        cryingIntensity: cryingIntensity > 0 ? cryingIntensity : undefined
+        cryingIntensity: cryingIntensity
       };
     } else if (activeSheet === 'weight') {
       payload.eventType = 'WEIGHT';
@@ -1681,6 +1727,10 @@ export default function App() {
   const handleUpdateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEvent) return;
+    if (editingEvent.eventType === 'NUTRITION' && editingEvent.nutrition && bottleFeedType === 'BOTTLE' && !validateBottleNutritionAmounts()) {
+      return;
+    }
+
     setSubmitting(true);
 
     const timestamp = customTimestamp ? new Date(customTimestamp).toISOString() : editingEvent.timestamp;
@@ -1719,7 +1769,7 @@ export default function App() {
     } else if (editingEvent.eventType === 'ACTIVITY' && editingEvent.activity) {
       payload.activity = {
         activityName,
-        cryingIntensity: cryingIntensity > 0 ? cryingIntensity : undefined
+        cryingIntensity: cryingIntensity
       };
     } else if (editingEvent.eventType === 'WEIGHT' && editingEvent.weight) {
       payload.weight = {
@@ -1914,6 +1964,7 @@ export default function App() {
     setBottleLiquidType(settings.defaultBottleType);
     setAmountOfferedMl(120);
     setAmountConsumedMl(120);
+    setConsumedManuallyEdited(false);
     setBreastSide('BOTH');
     setBreastDuration(15);
     setSpitUp('NONE');
@@ -1965,8 +2016,11 @@ export default function App() {
       setBottleFeedType(event.nutrition.feedType);
       if (event.nutrition.feedType === 'BOTTLE') {
         setBottleLiquidType(event.nutrition.bottleLiquidType || 'EXPRESSED_MILK');
-        setAmountOfferedMl(event.nutrition.amountOfferedMl || 120);
-        setAmountConsumedMl(event.nutrition.amountConsumedMl || 110);
+        const offered = event.nutrition.amountOfferedMl || 120;
+        const consumed = event.nutrition.amountConsumedMl ?? offered;
+        setAmountOfferedMl(offered);
+        setAmountConsumedMl(consumed);
+        setConsumedManuallyEdited(consumed !== offered);
       } else {
         setBreastSide(event.nutrition.breastSide || 'BOTH');
         setBreastDuration(event.nutrition.durationMinutes || 15);
@@ -2318,16 +2372,30 @@ export default function App() {
 
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-indigo-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-indigo-400">
-          <Sparkles className="w-5 h-5 text-indigo-200 shrink-0" />
+        <div
+          className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 text-white font-bold px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border ${
+            toast.variant === 'error'
+              ? 'bg-red-600 border-red-400'
+              : 'bg-sky-600 border-sky-400'
+          }`}
+        >
+          {toast.variant === 'error' ? (
+            <AlertCircle className="w-5 h-5 text-red-100 shrink-0" />
+          ) : (
+            <Sparkles className="w-5 h-5 text-sky-100 shrink-0" />
+          )}
           <span>{toast.message}</span>
           {toast.undoEventId && (
             <>
-              <span className="text-indigo-300">·</span>
+              <span className={toast.variant === 'error' ? 'text-red-200' : 'text-sky-200'}>·</span>
               <button
                 type="button"
                 onClick={handleUndoLastLog}
-                className="text-white underline underline-offset-2 hover:text-indigo-100 font-black cursor-pointer"
+                className={`underline underline-offset-2 font-black cursor-pointer ${
+                  toast.variant === 'error'
+                    ? 'text-white hover:text-red-100'
+                    : 'text-white hover:text-sky-100'
+                }`}
               >
                 בטל
               </button>
@@ -3407,7 +3475,7 @@ export default function App() {
                       className={`relative flex items-center gap-4 p-3.5 rounded-3xl border border-slate-850 hover:border-slate-700/80 hover:bg-slate-900 transition-all cursor-pointer select-none text-right ${bgClass} ${showTierFace && qualityTier ? 'border-r-4' : borderClass}`}
                       style={tierAccentStyle}
                     >
-                      <div className="flex items-center justify-center gap-1.5 shrink-0 z-10 min-w-[3.25rem]">
+                      <div className="flex items-center justify-center shrink-0 z-10">
                         <div className="relative w-10 h-10 rounded-2xl flex items-center justify-center text-lg shadow-sm bg-slate-950 border border-slate-800">
                           {icon}
                           {hasEventMemo(e) && (
@@ -3420,15 +3488,6 @@ export default function App() {
                             </span>
                           )}
                         </div>
-                        {showTierFace && qualityTier && (
-                          <div
-                            className="w-8 h-8 rounded-xl flex items-center justify-center bg-slate-950 border shrink-0"
-                            style={{ borderColor: TIER_MAP[qualityTier].color }}
-                            title={TIER_MAP[qualityTier].hebrewLabel}
-                          >
-                            <IconTierFace tier={qualityTier} className="w-5 h-5" />
-                          </div>
-                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline gap-2">
@@ -5019,52 +5078,28 @@ export default function App() {
                           <div className="flex gap-1.5">
                             <button 
                               type="button" 
-                              onClick={() => {
-                                setAmountOfferedMl(prev => {
-                                  const val = Math.max(0, prev - 10);
-                                  setAmountConsumedMl(val);
-                                  return val;
-                                });
-                              }}
+                              onClick={() => applyOfferedAmount(amountOfferedMl - 10)}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               -10
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => {
-                                setAmountOfferedMl(prev => {
-                                  const val = Math.max(0, prev - 5);
-                                  setAmountConsumedMl(val);
-                                  return val;
-                                });
-                              }}
+                              onClick={() => applyOfferedAmount(amountOfferedMl - 5)}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               -5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => {
-                                setAmountOfferedMl(prev => {
-                                  const val = prev + 5;
-                                  setAmountConsumedMl(val);
-                                  return val;
-                                });
-                              }}
+                              onClick={() => applyOfferedAmount(amountOfferedMl + 5)}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               +5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => {
-                                setAmountOfferedMl(prev => {
-                                  const val = prev + 10;
-                                  setAmountConsumedMl(val);
-                                  return val;
-                                });
-                              }}
+                              onClick={() => applyOfferedAmount(amountOfferedMl + 10)}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               +10
@@ -5081,28 +5116,28 @@ export default function App() {
                           <div className="flex gap-1.5">
                             <button 
                               type="button" 
-                              onClick={() => setAmountConsumedMl(prev => Math.max(0, prev - 10))}
+                              onClick={() => markConsumedManual(amountConsumedMl - 10)}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               -10
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountConsumedMl(prev => Math.max(0, prev - 5))}
+                              onClick={() => markConsumedManual(amountConsumedMl - 5)}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               -5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountConsumedMl(prev => Math.min(amountOfferedMl, prev + 5))}
+                              onClick={() => markConsumedManual(amountConsumedMl + 5)}
                               className="w-10 h-10 bg-slate-850 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700 text-xs"
                             >
                               +5
                             </button>
                             <button 
                               type="button" 
-                              onClick={() => setAmountConsumedMl(prev => Math.min(amountOfferedMl, prev + 10))}
+                              onClick={() => markConsumedManual(amountConsumedMl + 10)}
                               className="w-11 h-11 bg-slate-800 text-slate-200 rounded-xl flex items-center justify-center font-bold active:bg-slate-700"
                             >
                               +10
@@ -5117,6 +5152,7 @@ export default function App() {
                               key={preset}
                               type="button"
                               onClick={() => {
+                                setConsumedManuallyEdited(false);
                                 setAmountOfferedMl(preset);
                                 setAmountConsumedMl(preset);
                               }}
@@ -5879,11 +5915,11 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="text-[10px] text-slate-400">הוצע (מ״ל)</label>
-                              <input type="number" value={amountOfferedMl} onChange={(e) => setAmountOfferedMl(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs" />
+                              <input type="number" value={amountOfferedMl} onChange={(e) => applyOfferedAmount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs" />
                             </div>
                             <div>
                               <label className="text-[10px] text-slate-400">נצרך (מ״ל)</label>
-                              <input type="number" value={amountConsumedMl} onChange={(e) => setAmountConsumedMl(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs" />
+                              <input type="number" value={amountConsumedMl} onChange={(e) => markConsumedManual(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs" />
                             </div>
                           </div>
                         </div>
@@ -6105,7 +6141,7 @@ export default function App() {
                       </div>
                       <div>
                         <label className="text-[10px] text-slate-400 font-bold">אחוזון</label>
-                        <input type="number" value={percentile} onChange={(e) => setPercentile(Number(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl p-2 text-xs" />
+                        <input type="number" value={percentile} onChange={(e) => setPercentile(e.target.value ? Number(e.target.value) : '')} className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-xl p-2 text-xs" />
                       </div>
                     </div>
                   )}

@@ -12,6 +12,8 @@ See `.cursor/rules/core.mdc` for the full mandatory workflow.
 - Never hardcode secrets. Never commit `.env` or credential JSON.
 - Commits are human-only.
 - Mandatory handoff always: `baby-tracker-handoff` skill before stopping.
+- Plan write-off: mark milestones ✅ in `plans/` only after human approves post-review (`milestone N approved` / `mark M[N] complete`).
+- Commits: invoke **`safe-commit-push`** (worktree-aware; warns if localhost:3000 won't update).
 
 ## Architecture (non-negotiable)
 

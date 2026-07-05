@@ -258,7 +258,7 @@ app.post('/api/sleep/toggle', async (req, res) => {
         sleep: {
           startAt: startAt,
           endAt: null,
-          startLocation,
+          ...(startLocation !== undefined ? { startLocation } : {}),
           loggedByStart: activeParent
         }
       };
