@@ -14,6 +14,9 @@ firebase-applet-config.json
 # AgentMemory iii-engine local store (should live in ~/.agentmemory, never here)
 /data/
 
+# Claude Code nested worktree snapshots (not a real git worktree — safe to delete)
+.claude/worktrees/
+
 # design-sync (claude.ai/design) — staged scripts, build output, machine state
 .ds-sync/
 ds-bundle/

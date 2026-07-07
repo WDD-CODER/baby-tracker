@@ -1,0 +1,120 @@
+- generic [ref=e3]:
+  - generic [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e20]: 🤱🍼
+      - generic [ref=e21]: עברו 15 דקות מההנקה האחרונה. זהו הזמן המומלץ לשאיבת חלב מונעת (שאיבה 1/3 להיום).
+    - generic [ref=e22]:
+      - button "בוצע! תיעוד שאיבה ✔️" [ref=e23] [cursor=pointer]
+      - button "בטל תזכורת זו" [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+  - generic [ref=e28]:
+    - img [ref=e29]
+    - generic [ref=e31]: צהריים טובים! חלון זמן מומלץ לשנת צהריים גדולה (12:00 - 16:00) 😴
+  - banner [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - generic [ref=e35]: BT
+        - generic [ref=e36]:
+          - heading "מעקב תינוק" [level=1] [ref=e37]
+          - paragraph [ref=e38]: רפואי • אמא ו-אבא
+      - generic [ref=e39]: 👤 אבא
+  - main [ref=e40]:
+    - generic [ref=e41]:
+      - generic [ref=e42]:
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - text: ציר זמן קרוסלה • 1 מתוך 6
+        - generic [ref=e47]: יום א׳, 5.7 • 12:56
+      - generic [ref=e48]:
+        - generic [ref=e51]:
+          - generic [ref=e52]: 🍼
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - heading "חלב שאוב" [level=4] [ref=e55]
+              - generic [ref=e56]: לפני 17 דק׳
+            - paragraph [ref=e57]: "נצרך: 120 מ״ל מתוך 120 מ״ל"
+            - generic [ref=e58]:
+              - generic [ref=e59]: נרשם ע״י אבא
+              - generic [ref=e60]: לחץ לעריכה ✏️
+        - button "🍼 12:51" [ref=e61] [cursor=pointer]:
+          - generic [ref=e62]: 🍼
+          - generic [ref=e63]: 12:51
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - 'button "🍼 ארוחה / בקבוק 🍼 בקבוקים: 2 | 🤱 הנקות: 2 קליק: ארוחה מהירה 🍼 | החזק: מלא 🤱 האכלה הבאה: 01:42:46" [ref=e155] [cursor=pointer]':
+          - generic [ref=e74]: 🍼
+          - generic [ref=e75]:
+            - generic [ref=e76]: ארוחה / בקבוק
+            - generic [ref=e77]:
+              - generic [ref=e78]: "🍼 בקבוקים: 2"
+              - generic [ref=e79]: "|"
+              - generic [ref=e80]: "🤱 הנקות: 2"
+            - generic [ref=e81]: "קליק: ארוחה מהירה 🍼 | החזק: מלא 🤱"
+            - generic [ref=e82]: "האכלה הבאה: 01:42:46"
+        - 'button "🧷 החלפת חיתול 💦 0 | 💩 0 | 💦💩 0 קליק: מהיר 💦💩 | החזק: מלא 📋" [ref=e83] [cursor=pointer]':
+          - generic [ref=e84]: 🧷
+          - generic [ref=e85]:
+            - generic [ref=e86]: החלפת חיתול
+            - generic [ref=e87]:
+              - generic [ref=e88]: 💦 0
+              - generic [ref=e89]: "|"
+              - generic [ref=e90]: 💩 0
+              - generic [ref=e91]: "|"
+              - generic [ref=e92]: 💦💩 0
+            - generic [ref=e93]: "קליק: מהיר 💦💩 | החזק: מלא 📋"
+        - 'button "השכבה לישון 💤 קליק מהיר: שינה מהירה עכשיו 💤 | החזק: בחירת מיקום 📋 ער" [active] [ref=e94] [cursor=pointer]':
+          - generic [ref=e95]:
+            - img [ref=e97]
+            - generic [ref=e99]:
+              - generic [ref=e100]: השכבה לישון 💤
+              - generic [ref=e101]: "קליק מהיר: שינה מהירה עכשיו 💤 | החזק: בחירת מיקום 📋"
+          - generic [ref=e102]: ער
+        - button "🎨 תיעוד פעילות" [ref=e103]:
+          - generic [ref=e104]: 🎨
+          - generic [ref=e105]: תיעוד פעילות
+        - button "⚖️ שקילה רפואית" [ref=e106]:
+          - generic [ref=e107]: ⚖️
+          - generic [ref=e108]: שקילה רפואית
+        - 'button "🤮 פליטות / הקאות קליק: מהיר 🤮 | החזק: מלא 📋" [ref=e109] [cursor=pointer]':
+          - generic [ref=e110]: 🤮
+          - generic [ref=e111]:
+            - generic [ref=e112]: פליטות / הקאות
+            - generic [ref=e113]: "קליק: מהיר 🤮 | החזק: מלא 📋"
+      - generic [ref=e114]:
+        - generic [ref=e115]:
+          - heading "🧷 סבב חיתולים יומי (היום)" [level=3] [ref=e116]:
+            - generic [ref=e117]: 🧷
+            - generic [ref=e118]: סבב חיתולים יומי (היום)
+          - generic [ref=e119]: 0 חיתולים
+        - paragraph [ref=e120]: לא נרשמו חיתולים היום (החל מ-6:00 בבוקר)
+      - generic [ref=e121]:
+        - generic [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e124]: 🍼🤱
+            - heading "שאיבות חלב יומיות (היום)" [level=3] [ref=e125]
+          - button "תיעוד שאיבה יזומה +" [ref=e126] [cursor=pointer]
+        - paragraph [ref=e127]: לא נרשמו שאיבות היום (שאיבות מונעות ורגילות)
+      - generic [ref=e129]:
+        - generic [ref=e130]:
+          - generic [ref=e131]: 💧
+          - heading "ביו גאיה" [level=3] [ref=e132]
+        - generic [ref=e133]:
+          - generic [ref=e134]: ✓ ניתן ב-12:00
+          - generic [ref=e135]: אבא
+  - navigation [ref=e136]:
+    - button "✍️ רישום חדש" [ref=e137]:
+      - generic [ref=e138]: ✍️
+      - generic [ref=e139]: רישום חדש
+    - button "📋 ציר זמן" [ref=e140]:
+      - generic [ref=e141]: 📋
+      - generic [ref=e142]: ציר זמן
+    - button "📊 דאשבורדים" [ref=e143]:
+      - generic [ref=e144]: 📊
+      - generic [ref=e145]: דאשבורדים
+    - button "⚙️ הגדרות וייצוא" [ref=e146]:
+      - generic [ref=e147]: ⚙️
+      - generic [ref=e148]: הגדרות וייצוא
+  - button "😴 חסרה שנת צהריים גדולה 💤 ✕" [ref=e150] [cursor=pointer]:
+    - generic [ref=e151]: 😴
+    - generic [ref=e152]: חסרה שנת צהריים גדולה 💤
+    - generic [ref=e153]: ✕

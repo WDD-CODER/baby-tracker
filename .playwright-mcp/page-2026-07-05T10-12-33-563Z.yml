@@ -1,0 +1,14 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]: BT
+    - heading "מעקב תינוק" [level=1] [ref=e7]
+    - paragraph [ref=e8]: התחברות למערכת
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]: שם משתמש
+      - textbox "הזן שם משתמש" [ref=e12]
+    - generic [ref=e13]:
+      - generic [ref=e14]: סיסמה
+      - textbox "הזן סיסמה" [ref=e15]
+    - button "התחברות" [ref=e16]
+  - paragraph [ref=e17]: אין הרשמה באפליקציה — שני חשבונות הורים מוגדרים מראש בשרת (קובץ .env).
