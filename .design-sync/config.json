@@ -1,0 +1,39 @@
+{
+  "pkg": "baby-tracker",
+  "globalName": "BabyTracker",
+  "projectId": "12362e55-d551-413f-bef3-33b74501ae22",
+  "shape": "package",
+  "srcDir": "src",
+  "tsconfig": "./tsconfig.json",
+  "buildCmd": "node .ds-sync/node_modules/@tailwindcss/cli/dist/index.mjs -i .design-sync/tailwind-input.css -o .design-sync/.cache/ds.css --minify",
+  "cssEntry": ".design-sync/.cache/ds.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "componentSrcMap": {
+    "DateTime24": "src/components/DateTime24.tsx",
+    "InstallAppButton": "src/components/InstallAppButton.tsx",
+    "SleepTimer": "src/components/SleepTimer.tsx",
+    "DiaperIcon": "src/components/icons.tsx",
+    "IconBreast": "src/components/icons.tsx",
+    "IconBottleExpressed": "src/components/icons.tsx",
+    "IconBottleFormula": "src/components/icons.tsx",
+    "IconPoo": "src/components/icons.tsx",
+    "IconPeeDrop": "src/components/icons.tsx",
+    "IconWeightScale": "src/components/icons.tsx",
+    "IconSleepMoon": "src/components/icons.tsx",
+    "IconTierFace": "src/components/icons.tsx"
+  },
+  "dtsPropsFor": {
+    "DateTime24": "  /** \"YYYY-MM-DDTHH:mm\" — same string the native datetime-local input uses. */\n  value: string;\n  /** Called with the new \"YYYY-MM-DDTHH:mm\" string on every change. */\n  onChange: (value: string) => void;\n  className?: string;",
+    "InstallAppButton": "  // No props — reads PWA install availability from the browser via a hook.",
+    "SleepTimer": "  /** ISO timestamp the sleep started at. Omitted renders a zeroed 00:00:00 clock. */\n  startAt?: string;",
+    "DiaperIcon": "  /** Tailwind sizing/color utilities. Defaults to \"w-5 h-5\". */\n  className?: string;\n  strokeWidth?: number;",
+    "IconBreast": "  className?: string;",
+    "IconBottleExpressed": "  className?: string;",
+    "IconBottleFormula": "  className?: string;",
+    "IconPoo": "  className?: string;\n  /** Fill color. Defaults to mustard yellow; pass a POO_GLYPH_FILL value. */\n  fill?: string;",
+    "IconPeeDrop": "  className?: string;",
+    "IconWeightScale": "  className?: string;",
+    "IconSleepMoon": "  className?: string;",
+    "IconTierFace": "  /** Which quality tier to render a face for. */\n  tier: 'BAD' | 'OKAY' | 'GOOD' | 'GREAT';\n  className?: string;"
+  }
+}
